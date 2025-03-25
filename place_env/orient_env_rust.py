@@ -44,9 +44,17 @@ class OrientPlaceEnv(gym.Env):
         self.observation_space = spaces.Box(low=-10, high=10, shape=(state_dim,), dtype=np.float32)
 
         self.state: np.ndarray = None
-        self.net_min_max_ord: dict[str, tuple[int, int, int, int]] = {}
-        self.node_pos: dict[str, tuple[int, int, int, int, int]] = None
-        self.node_pin_pos: dict[str, dict[str, tuple[float, float]]] = None
+        # 记录每个net的范围的最新信息, key1为net_name，key2为`min_x`, `max_x`, `min_y`, `max_y`
+        self.net_min_max_ord: dict[str, dict[str, int]] = {}
+        # 记录每个net的范围的次新信息, key1为net_name，key2为`min_x`, `max_x`, `min_y`, `max_y`
+        self.last_net_min_max_ord: dict[str, dict[str, int]] = {}
+        # 记录每个net的支持node，pin。key1为net_name，key2为`min_x`, `max_x`, `min_y`, `max_y`
+        # 元组内为node_name, pin_name 或者 "PORT", port_name
+        self.net_support_node_pin: dict[str, dict[str, tuple[str, str]]] = {}
+        # 记录每个node的位置信息，即左下角的x坐标，y坐标，宽度w，高度h，方向o
+        self.node_pos: dict[str, tuple[int, int, int, int, int]] = {}
+        # 记录每个node的每个pin的相对坐标信息，key1为`PORT`时表示记录芯片对外IO端口
+        self.node_pin_pos: dict[str, dict[str, tuple[float, float]]] = {}
         self.place_counter: int = None
         self.ratio = self.canvas_height / self.grid
         print("self.ratio = {:.2f}".format(self.ratio))
@@ -167,10 +175,13 @@ class OrientPlaceEnv(gym.Env):
 
     def reset(self):
         canvas = np.zeros((self.grid, self.grid))
-        self.node_pos = {}
-        self.net_min_max_ord = {}
-        self.node_pin_pos = {}
         self.rudy = np.zeros((self.grid, self.grid))
+        self.node_pos.clear()
+        self.net_min_max_ord.clear()
+        self.last_net_min_max_ord.clear()
+        self.net_support_node_pin.clear()
+        self.node_pin_pos.clear()
+        
         if os.getenv("PLACEENV_IGNORE_PORT", "0") == "1":
             print("`PLACEENV_IGNORE_PORT=1`, so chip ports are ignored")
         else:
@@ -184,19 +195,33 @@ class OrientPlaceEnv(gym.Env):
                 for net_name in self.placedb.port2net_dict[port_name]:
                     if net_name in self.net_min_max_ord:
                         if pin_x > self.net_min_max_ord[net_name]["max_x"]:
+                            self.last_net_min_max_ord[net_name]["max_x"] = self.net_min_max_ord[net_name]["max_x"]
                             self.net_min_max_ord[net_name]["max_x"] = pin_x
+                            self.net_support_node_pin[net_name]["max_x"] = ("PORT", port_name)
                         elif pin_x < self.net_min_max_ord[net_name]["min_x"]:
+                            self.last_net_min_max_ord[net_name]["min_x"] = self.net_min_max_ord[net_name]["min_x"]
                             self.net_min_max_ord[net_name]["max_y"] = pin_y
+                            self.net_support_node_pin[net_name]["max_y"] = ("PORT", port_name)
                         if pin_y > self.net_min_max_ord[net_name]["max_y"]:
+                            self.last_net_min_max_ord[net_name]["max_y"] = self.net_min_max_ord[net_name]["max_y"]
                             self.net_min_max_ord[net_name]["max_y"] = pin_y
+                            self.net_support_node_pin[net_name]["max_y"] = ("PORT", port_name)
                         elif pin_y < self.net_min_max_ord[net_name]["min_y"]:
+                            self.last_net_min_max_ord[net_name]["min_y"] = self.net_min_max_ord[net_name]["min_y"]
                             self.net_min_max_ord[net_name]["min_y"] = pin_y
+                            self.net_support_node_pin[net_name]["min_y"] = ("PORT", port_name)
                     else:
                         self.net_min_max_ord[net_name] = {}
+                        self.last_net_min_max_ord[net_name] = {}
+                        self.net_support_node_pin[net_name] = {}
                         self.net_min_max_ord[net_name]["max_x"] = pin_x
                         self.net_min_max_ord[net_name]["min_x"] = pin_x
                         self.net_min_max_ord[net_name]["max_y"] = pin_y
                         self.net_min_max_ord[net_name]["min_y"] = pin_y
+                        self.net_support_node_pin[net_name]["max_x"] = ("PORT", port_name)
+                        self.net_support_node_pin[net_name]["min_x"] = ("PORT", port_name)
+                        self.net_support_node_pin[net_name]["max_y"] = ("PORT", port_name)
+                        self.net_support_node_pin[net_name]["min_y"] = ("PORT", port_name)
 
         self.place_counter = 0
         node_name = self.node_name_list[self.place_counter]
@@ -285,34 +310,49 @@ class OrientPlaceEnv(gym.Env):
 
                     if pin_x > self.net_min_max_ord[net_name]["max_x"]:
                         reward += weight * (self.net_min_max_ord[net_name]["max_x"] - pin_x)
+                        self.last_net_min_max_ord[net_name]["max_x"] = self.net_min_max_ord[net_name]["max_x"]
                         self.net_min_max_ord[net_name]["max_x"] = pin_x
+                        self.net_support_node_pin[net_name]["max_x"] = (node_name, pin_name)
                     elif pin_x < self.net_min_max_ord[net_name]["min_x"]:
                         reward += weight * (pin_x - self.net_min_max_ord[net_name]["min_x"])
+                        self.last_net_min_max_ord[net_name]["min_x"] = self.net_min_max_ord[net_name]["min_x"]
                         self.net_min_max_ord[net_name]["min_x"] = pin_x
+                        self.net_support_node_pin[net_name]["min_x"] = (node_name, pin_name)
                     if pin_y > self.net_min_max_ord[net_name]["max_y"]:
                         reward += weight * (self.net_min_max_ord[net_name]["max_y"] - pin_y)
+                        self.last_net_min_max_ord[net_name]["max_y"] = self.net_min_max_ord[net_name]["max_y"]
                         self.net_min_max_ord[net_name]["max_y"] = pin_y
+                        self.net_support_node_pin[net_name]["max_y"] = (node_name, pin_name)
                     elif pin_y < self.net_min_max_ord[net_name]["min_y"]:
                         reward += weight * (pin_y - self.net_min_max_ord[net_name]["min_y"])
+                        self.last_net_min_max_ord[net_name]["min_y"] = self.net_min_max_ord[net_name]["min_y"]
                         self.net_min_max_ord[net_name]["min_y"] = pin_y
-                    start_x = self.net_min_max_ord[net_name]["min_x"]
-                    end_x = self.net_min_max_ord[net_name]["max_x"]
-                    start_y = self.net_min_max_ord[net_name]["min_y"]
-                    end_y = self.net_min_max_ord[net_name]["max_y"]
-                    delta_x = end_x - start_x
-                    delta_y = end_y - start_y
-                    self.rudy[start_x : end_x + 1, start_y : end_y + 1] += 1 / (delta_x + 1) + 1 / (delta_y + 1)
+                        self.net_support_node_pin[net_name]["min_y"] = (node_name, pin_name)
                 else:
                     self.net_min_max_ord[net_name] = {}
+                    self.last_net_min_max_ord[net_name] = {}
+                    self.net_support_node_pin[net_name] = {}
                     self.net_min_max_ord[net_name]["max_x"] = pin_x
                     self.net_min_max_ord[net_name]["min_x"] = pin_x
                     self.net_min_max_ord[net_name]["max_y"] = pin_y
                     self.net_min_max_ord[net_name]["min_y"] = pin_y
-                    start_x = self.net_min_max_ord[net_name]["min_x"]
-                    end_x = self.net_min_max_ord[net_name]["max_x"]
-                    start_y = self.net_min_max_ord[net_name]["min_y"]
-                    end_y = self.net_min_max_ord[net_name]["max_y"]
-                    reward += 0
+
+                    self.net_support_node_pin[net_name]["max_x"] = (node_name, pin_name)
+                    self.net_support_node_pin[net_name]["min_x"] = (node_name, pin_name)
+                    self.net_support_node_pin[net_name]["max_y"] = (node_name, pin_name)
+                    self.net_support_node_pin[net_name]["min_y"] = (node_name, pin_name)
+                    # 当net里只有一个点时，不会引起hpwl增加
+                    # reward += 0
+                
+                # 计算rudy值，估计congestion
+                start_x = self.net_min_max_ord[net_name]["min_x"]
+                end_x = self.net_min_max_ord[net_name]["max_x"]
+                start_y = self.net_min_max_ord[net_name]["min_y"]
+                end_y = self.net_min_max_ord[net_name]["max_y"]
+                delta_x = end_x - start_x
+                delta_y = end_y - start_y
+                if delta_x > 0 or delta_y > 0:
+                    self.rudy[start_x : end_x + 1, start_y : end_y + 1] += 1 / (delta_x + 1) + 1 / (delta_y + 1)
 
         self.place_counter += 1
         done = self.place_counter == len(self.node_name_list)
@@ -487,67 +527,24 @@ class OrientPlaceEnv(gym.Env):
 
     @trackit
     def save_flyline(self, file_path: Path) -> None:
-        # 参数配置
-        jitter = 3  # 基础抖动幅度
-        base_strength = 20  # 基础弯曲强度
-        line_alpha = 0.5  # 线条透明度
-        line_width = 0.8  # 线条宽度
-        ref_distance = 150  # 弧度计算参考距离
 
         if isinstance(file_path, str):
             file_path = pathlib.Path(file_path)
 
-        def generate_distinct_color(n1, n2):
-            """生成高区分度的RGB颜色"""
-            # 创建排序后的节点对标识
-            node_pair = "".join(sorted([n1, n2]))
-            # 生成哈希值并映射到色相空间
-            hue = int(hashlib.md5(node_pair.encode()).hexdigest()[:5], 16) % 360
-            # 转换HSV到RGB（固定饱和度80%，明度90%）
-            rgb = colorsys.hsv_to_rgb(hue / 360.0, 0.8, 0.9)
-            return (rgb[0], rgb[1], rgb[2])  # 返回0-1范围的RGB元组
-
-        def calculate_control_points(x1, y1, x2, y2):
-            """计算带方向控制的贝塞尔曲线控制点"""
-            dx = x2 - x1
-            dy = y2 - y1
-            distance = np.hypot(dx, dy)
-
-            if distance == 0:
-                return (x1, y1), (x2, y2)
-
-            # 计算统一方向（始终向右凸起）
-            dir_x = dy / distance  # 垂直于连线方向的单位向量
-            dir_y = -dx / distance
-
-            # 动态弯曲强度：距离越远弯曲越大
-            strength = base_strength * (distance / ref_distance) ** 0.5
-
-            # 控制点偏移计算
-            cp_offset_x = dir_x * strength
-            cp_offset_y = dir_y * strength
-
-            # 设置控制点位置
-            cp1 = (x1 + dx * 0.25 + cp_offset_x, y1 + dy * 0.25 + cp_offset_y)
-            cp2 = (x1 + dx * 0.75 + cp_offset_x, y1 + dy * 0.75 + cp_offset_y)
-
-            return cp1, cp2
-
         # 创建画布
         _, ax = plt.subplots(figsize=(20, 20))
 
+        # 画node
         node2id_dict = {s: i + 1 for i, s in enumerate(self.node_name_list)}
-
         for node_name in self.node_pos:
-            x, y, size_x, size_y, orient = self.node_pos[node_name]
+            x, y, _, _, orient = self.node_pos[node_name]
             facecolor = "cyan"
             if hasattr(self.placedb, "hard_macro_info") and node_name not in self.placedb.hard_macro_info:
-                facecolor = "red"
+                facecolor = "yellow"
 
             x = round(x * self.ratio)
             y = round(y * self.ratio)
-            size_x = round(size_x * self.ratio)
-            size_y = round(size_y * self.ratio)
+            size_x, size_y = self.node_orient_physical_info[node_name][orient]["size"]
             ax.add_patch(
                 patches.Rectangle(
                     (x, y),  # (x,y)
@@ -568,6 +565,22 @@ class OrientPlaceEnv(gym.Env):
                 color="darkblue",
             )
 
+        # 画pin
+        pin_points = []
+        for node_name in self.node_pin_pos:
+            if node_name == "PORT":
+                for port_name in self.node_pin_pos[node_name]:
+                    pin_x, pin_y = self.node_pin_pos[node_name][port_name]
+                    pin_points.append((pin_x, pin_y))
+            else:
+                x, y = self.node_pos[node_name][:2]
+                for pin_name in self.node_pin_pos[node_name]:
+                    dx, dy = self.node_pin_pos[node_name][pin_name]
+                    pin_x = round(x * self.ratio + dx)
+                    pin_y = round(y * self.ratio + dy)
+                    pin_points.append((pin_x, pin_y))
+        ax.plot(*zip(*pin_points), "o", markersize=1, color="red")
+
         # 设置画布属性
         ax.autoscale()
         ax.set_aspect("equal")
@@ -577,64 +590,7 @@ class OrientPlaceEnv(gym.Env):
         plt.ylabel("Y Coordinate", fontsize=10)
 
         # 保存图像
-        plt.savefig(file_path, bbox_inches="tight", dpi=300)
-
-        all_connections = []
-        for net_name in self.placedb.net_info:
-            points = []
-            if os.getenv("PLACEENV_IGNORE_PORT", "0") != "1":
-                for port_info in self.placedb.net_info[net_name]["ports"].values():
-                    port_name = port_info["key"]
-                    x, y = port_info["pin_offset"]
-                    points.append((port_name, x, y))
-
-            for node_info in self.placedb.net_info[net_name]["nodes"].values():
-                node_name = node_info["key"]
-                x, y = self.node_pos[node_name][:2]
-                for pin_name in node_info["pins"].keys():
-                    dx, dy = self.node_pin_pos[node_name][pin_name]
-                    points.append((node_name, round(x * self.ratio + dx), round(y * self.ratio + dy)))
-
-            for p1, p2 in combinations(points, 2):
-                # 采样10%的边
-                if random.random() > 0.01:
-                    continue
-                n1, x1, y1 = p1
-                n2, x2, y2 = p2
-
-                # 计算控制点
-                cp1, cp2 = calculate_control_points(x1, y1, x2, y2)
-
-                # 生成颜色
-                color = generate_distinct_color(n1, n2)
-
-                # 计算连线长度用于排序
-                length = np.hypot(x2 - x1, y2 - y1)
-
-                all_connections.append((length, [(x1, y1), cp1, cp2, (x2, y2)], color))
-
-        # 按连线长度降序排序（先画长线）
-        all_connections.sort(reverse=True, key=lambda x: x[0])
-
-        # 绘制所有连线
-        for length, points, color in all_connections:
-            path = Path(
-                np.array([points[0], points[1], points[2], points[3]]),
-                [Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],
-            )
-            patch = patches.PathPatch(
-                path,
-                facecolor="none",
-                edgecolor=color,
-                linewidth=line_width,
-                alpha=line_alpha,
-                capstyle="round",
-            )
-            ax.add_patch(patch)
-
-        # 保存飞线图
-        flyline_fig_name = file_path.with_suffix("").as_posix() + "_flyline.png"
-        plt.savefig(flyline_fig_name, bbox_inches="tight", dpi=300)
+        plt.savefig(file_path, bbox_inches="tight", dpi=100)
         plt.close()
 
     @trackit
