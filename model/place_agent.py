@@ -22,6 +22,7 @@ class PlacePPO:
         self,
         placed_num_macro: int,
         grid: int,
+        num_game_per_update:int,
         batch_size: int,
         lr: float,
         gamma: float,
@@ -29,7 +30,7 @@ class PlacePPO:
     ):
         super(PlacePPO, self).__init__()
         self.placed_num_macro = placed_num_macro
-        self.buffer_capacity = 10 * placed_num_macro
+        self.buffer_capacity = num_game_per_update * placed_num_macro
         self.grid = grid
         self.batch_size = batch_size
         self.gamma = gamma

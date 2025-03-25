@@ -40,6 +40,7 @@ parser.add_argument("--seed", type=int, default=42, metavar="N", help="random se
 parser.add_argument("--gamma", type=float, default=0.95, metavar="G", help="discount factor (default: 0.9)")
 parser.add_argument("--lr", type=float, default=2.5e-3)
 parser.add_argument("--batch_size", type=int, default=64)
+parser.add_argument("--num_game_per_update", type=int, default=5)
 parser.add_argument("--total_episodes", type=int, default=10000, help="number of episodes")
 
 # result and log
@@ -84,7 +85,7 @@ print(f"placed_num_macro = {placed_num_macro}")
 def main():
 
     strftime = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-    RUN_ID = f"{placedb.design_name}_{strftime}_seed_{args.seed}_pnm_{placed_num_macro}_{'place' if args.noorient else 'orient'}"
+    RUN_ID = f"{placedb.design_name}_{strftime}_seed_{args.seed}_pnm_{placed_num_macro}_gamesperupdate{args.num_game_per_update}_{'place' if args.noorient else 'orient'}"
     if args.debug:
         RUN_ID = "DEBUG_" + RUN_ID
     RESULT_PATH = pathlib.Path(result_root) / RUN_ID
@@ -103,9 +104,9 @@ def main():
     fwrite = open(log_file_name, "w")
 
     if args.noorient:
-        agent = PlacePPO(placed_num_macro, grid, args.batch_size, args.lr, args.gamma, device)
+        agent = PlacePPO(placed_num_macro, grid, args.num_game_per_update, args.batch_size, args.lr, args.gamma, device)
     else:
-        agent = OrientPPO(placed_num_macro, grid, args.batch_size, args.lr, args.gamma, device)
+        agent = OrientPPO(placed_num_macro, grid, args.num_game_per_update, args.batch_size, args.lr, args.gamma, device)
     agent.CANVAS_SLICE = env.CANVAS_SLICE
     agent.WIRE_SLICE = env.WIRE_SLICE
     agent.POS_SLICE = env.POS_SLICE
