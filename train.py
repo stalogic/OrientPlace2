@@ -68,17 +68,9 @@ benchmark = args.design_name
 result_root = args.result_root
 log_root = args.log_root
 
-lefdef_reader = LefDefReader(**vars(args))
-placedb = PlaceDB(
-    design_name=lefdef_reader.design_name,
-    place_net_dict=lefdef_reader.place_net_dict,
-    place_instance_dict=lefdef_reader.place_instance_dict,
-    place_pin_dict=lefdef_reader.place_pin_dict,
-    lef_dict=lefdef_reader.lef_dict,
-    die_area=lefdef_reader.die_area,
-)
-
-# placedb = convert_to_soft_macro_placedb(placedb=placedb, parser=lefdef_reader)
+reader = LefDefReader(**vars(args))
+# placedb = PlaceDB(reader)
+placedb = build_soft_macro_placedb(reader)
 
 grid = 224
 placed_num_macro = len(placedb.macro_info)
@@ -92,7 +84,7 @@ print(f"placed_num_macro = {placed_num_macro}")
 def main():
 
     strftime = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-    RUN_ID = f"{benchmark}_{strftime}_seed_{args.seed}_pnm_{placed_num_macro}_{'place' if args.noorient else 'orient'}"
+    RUN_ID = f"{placedb.design_name}_{strftime}_seed_{args.seed}_pnm_{placed_num_macro}_{'place' if args.noorient else 'orient'}"
     if args.debug:
         RUN_ID = "DEBUG_" + RUN_ID
     RESULT_PATH = pathlib.Path(result_root) / RUN_ID

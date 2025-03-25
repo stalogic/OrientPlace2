@@ -83,7 +83,7 @@ class SoftMacroReader(DesignReader):
 
     @property
     def design_name(self) -> str:
-        return self._design_name
+        return f"{self._design_name}^soft_macro"
     
     @property
     def canvas_size(self) -> tuple[int, int]:
@@ -101,5 +101,6 @@ class SoftMacroReader(DesignReader):
     def place_port_dict(self) -> dict:
         return self._place_port_dict
     
+    @property
     def node_phisical_info(self) -> dict:
         return self._node_phisical_info
