@@ -121,15 +121,17 @@ class OrientPlaceEnv(gym.Env):
         计算每个节点在8个不同方向上的尺寸和引脚位置，并存储在`node_orient_physical_info`中。
 
         结果的schema如下：
-        - node_orient_physical_info: dict[str, dict[int, dict]]
-            - key: 节点名称 (str)
-            - value: dict[int, dict]
-                - key: 方向 (int, 0-7)
-                - value: dict
-                    - 'size': (width, height) 元组，表示节点在该方向上的尺寸 (tuple[float, float])
-                    - 'pins': dict[str, tuple[float, float]]
-                        - key: 引脚名称 (str)
-                        - value: 引脚在该方向上的偏移量 (tuple[float, float])
+        ```
+        {
+            node_name: {
+                orient: {
+                    'size': (width, height),
+                    'pins': {
+                        pin_name: (offset_x, offset_y),
+                    }
+                }
+            }
+        }
         """
         # 初始化节点基本信息字典
         node_basic_info: dict[str, dict] = {}
@@ -528,6 +530,8 @@ class OrientPlaceEnv(gym.Env):
     @trackit
     def save_flyline(self, file_path: Path) -> None:
 
+        self._calc_node_orient_metric()
+
         if isinstance(file_path, str):
             file_path = pathlib.Path(file_path)
 
@@ -592,6 +596,82 @@ class OrientPlaceEnv(gym.Env):
         # 保存图像
         plt.savefig(file_path, bbox_inches="tight", dpi=100)
         plt.close()
+
+    @trackit
+    def _calc_node_orient_metric(self):
+        node_orient_metric = {}
+        for net_name in self.net_support_node_pin:
+            for node_name, pin_name in self.net_support_node_pin[net_name].values():
+                if node_name not in self.placedb.hard_macro_info:
+                    continue
+                if node_name not in node_orient_metric:
+                    node_orient_metric[node_name] = {"pins": set()}
+                node_orient_metric[node_name]["pins"].add(pin_name)
+        hard_macro_count = len(self.placedb.hard_macro_info)
+        support_node_count = len(node_orient_metric)
+        support_pin_count = sum([len(v["pins"]) for v in node_orient_metric.values()])
+        net_count = len(self.net_support_node_pin)
+        print(f"Hard macro count: {hard_macro_count}, Support node count: {support_node_count} Support pin count: {support_pin_count} Net num: {net_count}")
+
+        for node_name in node_orient_metric:
+            # 计算当前node在4种orient下的grid_hpwl
+            node_grid_hpwl = []
+            node_x, node_y, _, _, current_orient = self.node_pos[node_name]
+            for index in range(4):
+                orient = (current_orient + index * 2) % 8
+                grid_hpwl = 0
+                for net_name in self.placedb.node2net_dict[node_name]:
+                    current_max_x = self.net_min_max_ord[net_name]["max_x"]
+                    current_min_x = self.net_min_max_ord[net_name]["min_x"]
+                    current_max_y = self.net_min_max_ord[net_name]["max_y"]
+                    current_min_y = self.net_min_max_ord[net_name]["min_y"]
+                    last_max_x = self.last_net_min_max_ord[net_name].get("max_x", -1)
+                    last_min_x = self.last_net_min_max_ord[net_name].get("min_x", self.grid+1)
+                    last_max_y = self.last_net_min_max_ord[net_name].get("max_y", -1)
+                    last_min_y = self.last_net_min_max_ord[net_name].get("min_y", self.grid+1)
+
+                    max_x, min_x, max_y, min_y = [], [], [], []
+
+                    for pin_name in self.placedb.net_info[net_name]["nodes"][node_name]["pins"]:
+                        pin_offset_x, pin_offset_y = self.node_orient_physical_info[node_name][orient]["pins"][pin_name]
+                        pin_x = round((node_x * self.ratio + pin_offset_x) / self.ratio)
+                        pin_y = round((node_y * self.ratio + pin_offset_y) / self.ratio)
+                        
+                        if current_min_x < pin_x < current_max_x:
+                            # 减小hpwl，需要先确认该pin support了 max_x 或 min_x
+                            if self.net_support_node_pin[net_name]["max_x"] == (node_name, pin_name):
+                                max_x.append(max(pin_x, last_max_x))
+                            else:
+                                max_x.append(current_max_x)
+
+                            if self.net_support_node_pin[net_name]["min_x"] == (node_name, pin_name):
+                                min_x.append(min(pin_x, last_min_x))
+                            else:
+                                min_x.append(current_min_x)
+                        else:
+                            # 扩大hpwl
+                            max_x.append(max(pin_x, current_max_x))
+                            min_x.append(min(pin_x, current_min_x))
+
+                        if current_min_y < pin_y < current_max_y:
+                            # 减小hpwl，需要先确认该pin support了 max_y 或 min_y
+                            if self.net_support_node_pin[net_name]["max_y"] == (node_name, pin_name):
+                                max_y.append(max(pin_y, last_max_y))
+                            else:
+                                max_y.append(current_max_y)
+
+                            if self.net_support_node_pin[net_name]["min_y"] == (node_name, pin_name):
+                                min_y.append(min(pin_y, last_min_y))
+                            else:
+                                min_y.append(current_min_y)
+                        else:
+                            # 扩大hpwl
+                            max_y.append(max(pin_y, current_max_y))
+                            min_y.append(min(pin_y, current_min_y))
+
+                    grid_hpwl += max(max_x) - min(min_x) + max(max_y) - min(min_y)
+                node_grid_hpwl.append(grid_hpwl)
+            # print(f"{node_name}\norient metric: {node_grid_hpwl}")
 
     @trackit
     def save_pl_file(self, file_path):
