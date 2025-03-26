@@ -131,7 +131,8 @@ class BasePlaceDB(ABC):
                             "pins": {
                                 pin_name: {
                                     "key": pin_name,
-                                    "pin_offset": tuple[float, float]
+                                    # 默认方向下的偏移，涉及node摆放放心时，需要进行坐标变换
+                                    "pin_offset": tuple[float, float] 
                                 },
                             },
                         },
