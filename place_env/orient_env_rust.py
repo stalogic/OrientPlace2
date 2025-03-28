@@ -530,13 +530,14 @@ class OrientPlaceEnv(gym.Env):
     @trackit
     def save_flyline(self, file_path: Path) -> None:
 
-        self._calc_node_orient_metric()
-
         if isinstance(file_path, str):
             file_path = pathlib.Path(file_path)
 
+        colors = ["green", "blue", "yellow", "red"]
+        node_orient_metric = self._calc_node_orient_metric()
+
         # 创建画布
-        _, ax = plt.subplots(figsize=(20, 20))
+        _, (ax1, ax2) = plt.subplots(ncols=2, figsize=(40, 20))
 
         # 画node
         node2id_dict = {s: i + 1 for i, s in enumerate(self.node_name_list)}
@@ -549,7 +550,7 @@ class OrientPlaceEnv(gym.Env):
             x = round(x * self.ratio)
             y = round(y * self.ratio)
             size_x, size_y = self.node_orient_physical_info[node_name][orient]["size"]
-            ax.add_patch(
+            ax1.add_patch(
                 patches.Rectangle(
                     (x, y),  # (x,y)
                     size_x,  # width
@@ -559,7 +560,7 @@ class OrientPlaceEnv(gym.Env):
                     facecolor=facecolor,
                 )
             )
-            ax.text(
+            ax1.text(
                 x + size_x / 2,
                 y + size_y / 2,
                 f"{node2id_dict[node_name]}_{ORIENT_MAP[orient]}",
@@ -567,6 +568,35 @@ class OrientPlaceEnv(gym.Env):
                 va="center",
                 fontsize=8,
                 color="darkblue",
+            )
+
+            facecolor = "white"
+            content = "N"
+            if node_name in node_orient_metric:
+                sorted_index, grid_hpwl, min_hpwl, max_hpwl = node_orient_metric[node_name]
+                facecolor = colors[sorted_index]
+                ratio1 = int((grid_hpwl/min_hpwl-1) * 1000)
+                ratio2 = int((max_hpwl/min_hpwl-1) * 1000)
+                content = f"{ratio1}_{ratio2}"
+
+            ax2.add_patch(
+                patches.Rectangle(
+                    (x, y),  # (x,y)
+                    size_x,  # width
+                    size_y,  # height
+                    linewidth=1,
+                    edgecolor="k",
+                    facecolor=facecolor,
+                )
+            )
+            ax2.text(
+                x + size_x / 2,
+                y + size_y / 2,
+                content,
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="black",
             )
 
         # 画pin
@@ -583,15 +613,22 @@ class OrientPlaceEnv(gym.Env):
                     pin_x = round(x * self.ratio + dx)
                     pin_y = round(y * self.ratio + dy)
                     pin_points.append((pin_x, pin_y))
-        ax.plot(*zip(*pin_points), "o", markersize=1, color="red")
+        ax1.plot(*zip(*pin_points), "o", markersize=1, color="red")
 
         # 设置画布属性
-        ax.autoscale()
-        ax.set_aspect("equal")
-        plt.grid(True, linestyle=":", alpha=0.3)
-        plt.title("Color-Coded Network Visualization", fontsize=14)
-        plt.xlabel("X Coordinate", fontsize=10)
-        plt.ylabel("Y Coordinate", fontsize=10)
+        ax1.autoscale()
+        ax1.set_aspect("equal")
+        ax1.grid(True, linestyle=":", alpha=0.3)
+        ax1.set_title("Color-Coded Node Placement Visualization", fontsize=14)
+        ax1.set_xlabel("X Coordinate", fontsize=10)
+        ax1.set_ylabel("Y Coordinate", fontsize=10)
+
+        ax2.autoscale()
+        ax2.set_aspect("equal")
+        ax2.grid(True, linestyle=":", alpha=0.3)
+        ax2.set_title("Color-Coded Node Orientation Visualization", fontsize=14)
+        ax2.set_xlabel("X Coordinate", fontsize=10)
+        ax2.set_ylabel("Y Coordinate", fontsize=10)
 
         # 保存图像
         plt.savefig(file_path, bbox_inches="tight", dpi=100)
@@ -613,6 +650,7 @@ class OrientPlaceEnv(gym.Env):
         net_count = len(self.net_support_node_pin)
         print(f"Hard macro count: {hard_macro_count}, Support node count: {support_node_count} Support pin count: {support_pin_count} Net num: {net_count}")
 
+        node_metric_dict = {}
         for node_name in node_orient_metric:
             # 计算当前node在4种orient下的grid_hpwl
             node_grid_hpwl = []
@@ -671,7 +709,11 @@ class OrientPlaceEnv(gym.Env):
 
                     grid_hpwl += max(max_x) - min(min_x) + max(max_y) - min(min_y)
                 node_grid_hpwl.append(grid_hpwl)
-            # print(f"{node_name}\norient metric: {node_grid_hpwl}")
+
+            sorted_index = sorted(node_grid_hpwl).index(node_grid_hpwl[0])
+            node_metric_dict[node_name] = (sorted_index, node_grid_hpwl[0], min(node_grid_hpwl), max(node_grid_hpwl))
+        
+        return node_metric_dict
 
     @trackit
     def save_pl_file(self, file_path):
