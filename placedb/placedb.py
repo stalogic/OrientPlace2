@@ -1,3 +1,4 @@
+from itertools import combinations
 from .base_placedb import BasePlaceDB
 from .base_reader import DesignReader
 from functools import cached_property
@@ -166,6 +167,41 @@ class PlaceDB(BasePlaceDB):
                 port2net_dict[port_name].add(net_name)
         return port2net_dict
         
-    @property
+    @cached_property
     def macro_place_queue(self) -> list[str]:
-        return list(sorted(self.macro_info.keys()))
+        macro_adjancy = {}
+        for macro1, macro2 in combinations(self.macro_info, 2):
+            macro1_nets = set(self.node2net_dict[macro1])
+            macro2_nets = set(self.node2net_dict[macro2])
+            common_nets = len(macro1_nets & macro2_nets)
+
+            if macro1 not in macro_adjancy:
+                macro_adjancy[macro1] = {}
+            if macro2 not in macro_adjancy:
+                macro_adjancy[macro2] = {}
+
+            if common_nets > 0:
+                macro_adjancy[macro1][macro2] = common_nets
+                macro_adjancy[macro2][macro1] = common_nets
+        
+        target_set = set()
+        residual_set = set(self.macro_info)
+        macro_queue = []
+
+        while len(residual_set) > 0:
+            max_macro, max_weight = None, None
+            for macro in residual_set:
+                assert macro_adjancy[macro].get(macro, 0) == 0
+                residual_weight = sum([macro_adjancy[macro].get(other, 0) for other in residual_set])
+                target_weight = sum([macro_adjancy[macro].get(other, 0) for other in target_set])
+
+                weight = (target_weight * residual_weight, target_weight, residual_weight)
+                if max_macro is None or weight > max_weight:
+                    max_macro, max_weight = macro, weight
+            assert max_macro is not None
+            macro_queue.append(max_macro)
+            target_set.add(max_macro)
+            residual_set.remove(max_macro)
+
+        assert len(macro_queue) == len(self.macro_info)
+        return macro_queue
