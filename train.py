@@ -142,8 +142,6 @@ def main():
             if agent.store_transition(trans):
                 assert done == True
                 agent.update()
-                if hasattr(agent, "update_train_flag"):
-                    agent.update_train_flag()
             score += reward
             raw_score += info["raw_reward"]
             state = next_state

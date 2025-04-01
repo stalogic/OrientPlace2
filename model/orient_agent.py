@@ -100,7 +100,7 @@ class OrientPPO:
             action_log_prob = action_dist.log_prob(action)
         return orient.item(), action.item(), orient_prob.item(), action_log_prob.item()
     
-    def update_train_flag(self):
+    def _update_train_flag(self):
         if self.placer_ok:
             if self.orient_agent_update_count is None and self.place_agent_update_count is None:
                 # 第一次更新train flag
@@ -160,6 +160,8 @@ class OrientPPO:
                     self.update_place_agent(batch_state, batch_orient, batch_action, batch_target, batch_old_action_log_prob)
                 if self.train_orient_agent:
                     self.update_orient_agent(batch_state, batch_orient, batch_target, batch_old_orient_log_prob)
+
+        self._update_train_flag()
 
     def update_place_agent(self, batch_state, batch_orient, batch_action, batch_target, batch_old_action_log_prob):
         canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)
