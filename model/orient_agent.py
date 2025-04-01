@@ -157,10 +157,8 @@ class OrientPPO:
                 batch_old_action_log_prob = old_action_log_prob[index].to(self.device)
 
                 if self.train_place_agent:
-                    print("train place agent")
                     self.update_place_agent(batch_state, batch_orient, batch_action, batch_target, batch_old_action_log_prob)
                 if self.train_orient_agent:
-                    print("train orient agent")
                     self.update_orient_agent(batch_state, batch_orient, batch_target, batch_old_orient_log_prob)
 
     def update_place_agent(self, batch_state, batch_orient, batch_action, batch_target, batch_old_action_log_prob):
