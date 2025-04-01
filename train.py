@@ -46,7 +46,7 @@ parser.add_argument("--total_episodes", type=int, default=10000, help="number of
 # result and log
 parser.add_argument("--result_root", type=str, default="./result/", help="path for save result")
 parser.add_argument("--log_root", type=str, default="./logs/", help="path for save result")
-parser.add_argument("--update_threshold_ratio", type=float, default=0.975, help="update threshold ratio")
+parser.add_argument("--update_threshold_ratio", type=float, default=0.97, help="update threshold ratio")
 
 # run mode parameters
 parser.add_argument("--cuda", type=str, default="", help="cuda device for set CUDA_VISIBLE_DEVICES")
@@ -142,6 +142,8 @@ def main():
             if agent.store_transition(trans):
                 assert done == True
                 agent.update()
+                if hasattr(agent, "update_train_flag"):
+                    agent.update_train_flag()
             score += reward
             raw_score += info["raw_reward"]
             state = next_state
@@ -153,6 +155,10 @@ def main():
             running_reward = score
         running_reward = running_reward * 0.9 + score * 0.1
         print(f"score = {score:.3e}, raw_score = {raw_score:.3e}")
+
+        if hasattr(agent, "placer_ok") and not agent.placer_ok and abs(score) < 1000000:
+            agent.placer_ok = True
+            print("Placer is ready for orient training.")
 
         if running_reward > best_reward * args.update_threshold_ratio or args.debug:
             best_reward = running_reward
