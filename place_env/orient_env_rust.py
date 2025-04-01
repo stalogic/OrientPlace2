@@ -571,7 +571,7 @@ class OrientPlaceEnv(gym.Env):
             )
 
             facecolor = "white"
-            content = "N"
+            content = ""
             if node_name in node_orient_metric:
                 sorted_index, grid_hpwl, min_hpwl, max_hpwl = node_orient_metric[node_name]
                 facecolor = colors[sorted_index]
@@ -639,16 +639,16 @@ class OrientPlaceEnv(gym.Env):
         node_orient_metric = {}
         for net_name in self.net_support_node_pin:
             for node_name, pin_name in self.net_support_node_pin[net_name].values():
-                if node_name not in self.placedb.hard_macro_info:
+                if node_name not in self.placedb.macro_info:
                     continue
                 if node_name not in node_orient_metric:
                     node_orient_metric[node_name] = {"pins": set()}
                 node_orient_metric[node_name]["pins"].add(pin_name)
-        hard_macro_count = len(self.placedb.hard_macro_info)
+        macro_count = len(self.placedb.macro_info)
         support_node_count = len(node_orient_metric)
         support_pin_count = sum([len(v["pins"]) for v in node_orient_metric.values()])
         net_count = len(self.net_support_node_pin)
-        print(f"Hard macro count: {hard_macro_count}, Support node count: {support_node_count} Support pin count: {support_pin_count} Net num: {net_count}")
+        print(f"Macro count: {macro_count}, Support node count: {support_node_count} Support pin count: {support_pin_count} Net num: {net_count}")
 
         node_metric_dict = {}
         for node_name in node_orient_metric:
