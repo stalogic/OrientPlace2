@@ -114,8 +114,10 @@ def main():
 
     running_reward = -float("inf")
     best_reward = running_reward
+    last_result = 0
 
     for i_epoch in range(args.total_episodes):
+        last_result -= 1
         score = 0
         raw_score = 0
         start = time.time()
@@ -158,26 +160,26 @@ def main():
             agent.placer_ok = True
             print("Placer is ready for orient training.")
 
-        if running_reward > best_reward * args.update_threshold_ratio or args.debug:
+        if running_reward > best_reward * args.update_threshold_ratio or args.debug or last_result <= 0:
             best_reward = running_reward
-            if i_epoch > 10 or args.debug:
-                try:
-                    print("start try")
-                    # cost is the routing estimation based on the MST algorithm
-                    hpwl, cost = env.calc_hpwl_and_cost()
-                    print(f"hpwl = {hpwl:.3e}\tcost = {cost:.3e}")
+            last_result = 100
+            try:
+                print("start try")
+                # cost is the routing estimation based on the MST algorithm
+                hpwl, cost = env.calc_hpwl_and_cost()
+                print(f"hpwl = {hpwl:.3e}\tcost = {cost:.3e}")
 
-                    strftime_now = time.strftime("%Y%m%d-%H-%M-%S", time.localtime())
-                    save_flag = f"{strftime_now}_I[{i_epoch}]_S[{int(raw_score)}]_H[{hpwl:.3e}]_C[{cost:.3e}]"
+                strftime_now = time.strftime("%Y%m%d-%H-%M-%S", time.localtime())
+                save_flag = f"{strftime_now}_I[{i_epoch}]_S[{int(raw_score)}]_H[{hpwl:.3e}]_C[{cost:.3e}]"
 
-                    agent.save_param(MODEL_PATH / save_flag)
-                    fig_name = FIGURE_PATH / f"{save_flag}.png"
-                    env.save_flyline(fig_name)
-                    print(f"save_figure: {fig_name}")
-                    pl_name = PLACE_PATH / f"{save_flag}.pl"
-                    env.save_pl_file(pl_name)
-                except:
-                    assert False
+                agent.save_param(MODEL_PATH / save_flag)
+                fig_name = FIGURE_PATH / f"{save_flag}.png"
+                env.save_flyline(fig_name)
+                print(f"save_figure: {fig_name}")
+                pl_name = PLACE_PATH / f"{save_flag}.pl"
+                env.save_pl_file(pl_name)
+            except:
+                assert False
 
         if i_epoch % 1 == 0:
             print(f"Epoch {i_epoch}, Moving average score is: {running_reward:.3e} Best reward: {best_reward:.3e}")
