@@ -114,11 +114,13 @@ class OrientPPO:
                     if self.orient_agent_update_count % 5 == 0:
                         self.train_orient_agent = False
                         self.train_place_agent = True
-                if self.train_place_agent:
+                elif self.train_place_agent:
                     self.place_agent_update_count += 1
                     if self.place_agent_update_count % 1 == 0:
                         self.train_place_agent = False
                         self.train_orient_agent = True
+                else:
+                    raise ValueError("orient, place train flag are False")
             print(f"update train flag, train_orient_agent={self.train_orient_agent}, train_place_agent={self.train_place_agent}")
                 
 
