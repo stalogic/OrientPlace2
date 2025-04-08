@@ -22,7 +22,7 @@ Transition = namedtuple(
         "o_log_prob",
         "a_log_prob",
         "next_state",
-        "reward_intrinsic",
+        "done",
     ],
 )
 
@@ -130,7 +130,6 @@ def main():
 
             next_state, reward, done, info = env.step(action, orient)
             assert next_state.shape == (3 + 17 * grid * grid,)
-            reward_intrinsic = 0
             trans = Transition(
                 state_tmp,
                 orient,
@@ -139,7 +138,7 @@ def main():
                 orient_log_prob,
                 action_log_prob,
                 next_state,
-                reward_intrinsic,
+                done,
             )
             if agent.store_transition(trans):
                 assert done == True

@@ -128,24 +128,23 @@ class OrientPPO:
     @trackit
     def update(self) -> None:
 
+        target_list = []
+        target = None
+        for transition in reversed(self.buffer):
+            if transition.done:
+                target = 0
+            target = transition.reward + self.gamma * target
+            target_list.append(target)
+        target_list.reverse()
+        target_v = torch.tensor(np.array(target_list), dtype=torch.float).view(-1, 1).to(self.device)
+
         state = torch.tensor(np.array([t.state for t in self.buffer]), dtype=torch.float)
         orient = torch.tensor(np.array([t.orient for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
         action = torch.tensor(np.array([t.action for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-        reward = torch.tensor(np.array([t.reward for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
         old_action_log_prob = torch.tensor(np.array([t.a_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
         old_orient_log_prob = torch.tensor(np.array([t.o_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-        self.buffer.clear()
 
-        target_list = []
-        target = 0
-        for i in range(reward.shape[0] - 1, -1, -1):
-            if state[i, 0] >= self.placed_num_macro - 1:
-                target = 0
-            r = reward[i, 0].item()
-            target = r + self.gamma * target
-            target_list.append(target)
-        target_list.reverse()
-        target_v_all = torch.tensor(np.array([t for t in target_list]), dtype=torch.float).view(-1, 1).to(self.device)
+        self.buffer.clear()
 
         for _ in range(self.ppo_epoch):  # iteration ppo_epoch
             for index in BatchSampler(SubsetRandomSampler(range(self.buffer_capacity)), self.batch_size, True):
@@ -154,7 +153,7 @@ class OrientPPO:
                 batch_state = state[index].to(self.device)
                 batch_orient = orient[index].to(self.device)
                 batch_action = action[index].to(self.device)
-                batch_target = target_v_all[index].to(self.device)
+                batch_target = target_v[index].to(self.device)
                 batch_old_orient_log_prob = old_orient_log_prob[index].to(self.device)
                 batch_old_action_log_prob = old_action_log_prob[index].to(self.device)
 
