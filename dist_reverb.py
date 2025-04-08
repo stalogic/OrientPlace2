@@ -30,7 +30,7 @@ agent.FEATURE_SLICE = env.FEATURE_SLICE
 variables = {
     'orient_actor': agent.orient_actor_net.state_dict(),
     'place_actor': agent.place_actor_net.state_dict(),
-    'model_id': torch.from_numpy(np.array(0, dtype=np.int32))
+    'model_id': torch.tensor(0, dtype=torch.int64)
 }
 
 def to_tf_dtype(torch_dtype):
@@ -66,48 +66,22 @@ data_signature = {
     'a_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'reward': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'next_state': tf.TensorSpec(shape=[None, 852995], dtype=tf.float64),
-    'done': tf.TensorSpec(shape=[None], dtype=tf.bool)
+    'done': tf.TensorSpec(shape=[None], dtype=tf.bool),
+    'model_id': tf.TensorSpec(shape=[], dtype=tf.int64),
 }
 
 data_table = reverb.Table(
     name="experience",
     sampler=reverb.selectors.MaxHeap(),
     remover=reverb.selectors.MinHeap(),
-    max_size=10000,
-    rate_limiter=reverb.rate_limiters.MinSize(5),
+    max_size=200,
+    rate_limiter=reverb.rate_limiters.MinSize(1),
+    max_times_sampled=1,
     signature=data_signature
 )
 
 server = reverb.Server([model_table, data_table], port=12888)
-dataset = reverb.TrajectoryDataset.from_table_signature(
-    server_address="localhost:12888",
-    table='experience',
-    max_in_flight_samples_per_worker=2
-)
-
-client = reverb.Client("localhost:12888")
-
-
-
-for _ in range(10):
-    variables = {
-        'orient_actor': agent.orient_actor_net.state_dict(),
-        'place_actor': agent.place_actor_net.state_dict(),
-        'model_id': variables['model_id'] + 1
-    }
-    client.insert([variables], priorities={'model_info': variables['model_id'].numpy().item()})
-
-    for sample in dataset.take(2):
-        # print(sample.info)
-        for key, value in sample.data.items():
-            print(f"{key=} shape: {value.shape} dtype: {value.dtype}, numpy.shape: {value.numpy().shape}")
-    time.sleep(100)
-
-
-
-
-
-
-
-# # 关闭服务器
-server.stop()
+del env
+del agent
+del placedb
+server.wait()

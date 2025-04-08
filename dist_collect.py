@@ -1,9 +1,14 @@
 import gym
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
 from model import OrientPPO
 import reverb
+import torch
+import numpy as np
+import tensorflow as tf
+import time
 
 PROJECT_ROOT = "/home/jiangmingming/mntspace/OrientPlace2"
 
@@ -18,12 +23,26 @@ reader = LefDefReader(data_root, design_name, cache_root)
 placedb = build_soft_macro_placedb(reader)
 
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
-agent = OrientPPO(len(placedb.macro_info), grid=224, num_game_per_update=5, batch_size=128, lr=1e-5, gamma=0.98, device='cpu')
+agent = OrientPPO(len(placedb.macro_info), grid=224, num_game_per_update=5, batch_size=128, lr=1e-5, gamma=0.98, device='cuda')
 agent.CANVAS_SLICE = env.CANVAS_SLICE
 agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
 agent.FEATURE_SLICE = env.FEATURE_SLICE
 
+def tf_to_torch(tf_tensor):
+    """将 TensorFlow 张量转换为 PyTorch 张量"""
+    numpy_array = tf_tensor.numpy()
+    dtype_mapping = {
+        tf.float32: torch.float32,
+        tf.float64: torch.float64,
+        tf.int32: torch.int32,
+        tf.int64: torch.int64,
+        tf.bool: torch.bool
+    }
+    torch_dtype = dtype_mapping.get(tf_tensor.dtype)
+    if torch_dtype is None:
+        raise ValueError(f"Unsupported TensorFlow dtype: {tf_tensor.dtype}")
+    return torch.tensor(numpy_array, dtype=torch_dtype)
 
 model_info = reverb.TimestepDataset.from_table_signature(
     server_address="localhost:12888",
@@ -31,26 +50,23 @@ model_info = reverb.TimestepDataset.from_table_signature(
     max_in_flight_samples_per_worker=1
 )
 
+while True:
+    model = next(iter(model_info.take(1)))
+    model_data = model.data
+    model_data = tf.nest.map_structure(tf_to_torch, model_data)
+    model_id = model_data.pop('model_id').numpy().item()
+    print(f"{model_id=}")
+    orient_actor = model_data['orient_actor']
+    agent.orient_actor_net.load_state_dict(orient_actor)
+    place_actor = model_data['place_actor']
+    agent.place_actor_net.load_state_dict(place_actor)
 
-with client.trajectory_writer(num_keep_alive_refs=200) as writer:
-    while True:
-        for model in model_info.take(1):
-            for key, value in model.data.items():
-                # print(f"{key=}, {type(value)}")
-                if key == "model_id":
-                    print(f"{key=}, {value.numpy().item()=}")
-                else:
-                    print(f"{key=}, {len(value)=}")
-
-        continue
-        
-        state = env.reset()
-        done = False
+    state = env.reset()
+    done = False
+    with client.trajectory_writer(num_keep_alive_refs=200) as writer:
+        t0 = time.time()
         while not done:
-            action = env.action_space.sample()
-            action_log_prob = 1e-3
-            orient = env.orient_space.sample()
-            orient_log_prob = 1e-1
+            orient, action, orient_log_prob, action_log_prob = agent.select_action(state)
 
             next_state, reward, done, info = env.step(action, orient)
 
@@ -62,17 +78,21 @@ with client.trajectory_writer(num_keep_alive_refs=200) as writer:
                 'a_log_prob': action_log_prob,
                 'reward': float(reward),
                 'next_state': next_state,
-                'done': done
+                'done': done,
+                'model_id': model_id,
             })
             state = next_state
-        writer.create_item('experience', 1.0, 
+        print(f"game time: {time.time() - t0:.2f}s")
+        writer.create_item('experience', model_id, 
                         trajectory= {
                             'state': writer.history['state'][:],
                             'orient': writer.history['orient'][:],
                             'action': writer.history['action'][:],
                             'o_log_prob': writer.history['o_log_prob'][:],
-                                'a_log_prob': writer.history['a_log_prob'][:],
-                                'reward': writer.history['reward'][:],
-                                'next_state': writer.history['next_state'][:],
-                                'done': writer.history['done'][:]
+                            'a_log_prob': writer.history['a_log_prob'][:],
+                            'reward': writer.history['reward'][:],
+                            'next_state': writer.history['next_state'][:],
+                            'done': writer.history['done'][:],
+                            'model_id': writer.history['model_id'][-1]
                         })
+        writer.flush()
