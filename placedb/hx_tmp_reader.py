@@ -69,8 +69,8 @@ class HxTmpReader(DesignReader):
                 blocks = line.strip().split(",")
                 node_id = f"o{blocks[0]}"
                 node_attribute = "FIXED" if blocks[1] == "1" else "PLACED"
-                node_width = int(blocks[2]/2)
-                node_height = int(blocks[3]/2)
+                node_width = int(blocks[2]) // 2
+                node_height = int(blocks[3]) // 2
 
                 node_info[node_id] = {
                     "attributes": node_attribute,

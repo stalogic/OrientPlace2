@@ -9,7 +9,7 @@ import torch
 
 import place_env
 from model import PlacePPO, OrientPPO
-from placedb import PlaceDB, LefDefReader, build_soft_macro_placedb
+from placedb import build_soft_macro_placedb, get_design_reader
 from util import set_random_seed
 
 Transition = namedtuple(
@@ -69,8 +69,8 @@ benchmark = args.design_name
 result_root = args.result_root
 log_root = args.log_root
 
-reader = LefDefReader(**vars(args))
-# placedb = PlaceDB(reader)
+DesignReader = get_design_reader(args.design_name)
+reader = DesignReader(**vars(args))
 placedb = build_soft_macro_placedb(reader)
 
 grid = 224
