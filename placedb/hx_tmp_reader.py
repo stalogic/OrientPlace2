@@ -69,8 +69,8 @@ class HxTmpReader(DesignReader):
                 blocks = line.strip().split(",")
                 node_id = f"o{blocks[0]}"
                 node_attribute = "FIXED" if blocks[1] == "1" else "PLACED"
-                node_width = int(blocks[2])
-                node_height = int(blocks[3])
+                node_width = int(blocks[2]/2)
+                node_height = int(blocks[3]/2)
 
                 node_info[node_id] = {
                     "attributes": node_attribute,
@@ -92,7 +92,7 @@ class HxTmpReader(DesignReader):
                 net_id = f"n{blocks[0]}"
                 node_id = f"o{blocks[1]}"
                 pin_direct = "OUTPUT" if blocks[2] == "1" else "INPUT"
-                pin_offset = (round(float(blocks[3])), round(float(blocks[4])))
+                pin_offset = (round(float(blocks[3])/2), round(float(blocks[4])/2))
                 if net_id not in net_info:
                     net_info[net_id] = {}
 
