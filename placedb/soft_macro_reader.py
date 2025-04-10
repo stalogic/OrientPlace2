@@ -1,11 +1,12 @@
 import math
-import networkx as nx
+import igraph as ig
+from loguru import logger
 
 from .base_reader import DesignReader
 
 class SoftMacroReader(DesignReader):
 
-    def __init__(self, reader: DesignReader, subgraph_list: list[nx.Graph], gamma=1.1):
+    def __init__(self, reader: DesignReader, subgraph_list: list[ig.Graph], gamma=1.1):
         super().__init__()
         self._design_name = reader.design_name
         self._canvas_size = reader.canvas_size
@@ -84,14 +85,12 @@ class SoftMacroReader(DesignReader):
                 }
 
         # 移除没有合法net的soft macro
-        for soft_macro in soft_macro_list:
-            if soft_macro not in valid_macro:
-                macro_type = self._place_node_dict[soft_macro]["node_type"]
-                del self._node_phisical_info[macro_type]
-                del self._place_node_dict[soft_macro]
-                print(f"Remove: {soft_macro=}")
-
-
+        node_list = list(self._place_node_dict)
+        for macro in node_list:
+            if macro not in valid_macro:
+                del self._place_node_dict[macro]
+                if macro not in soft_macro_list:
+                    logger.warning(f"Remove hard macro {macro} for not in any net.")
 
     @property
     def design_name(self) -> str:

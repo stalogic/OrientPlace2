@@ -4,6 +4,7 @@ import time
 import gzip
 import pickle
 import pathlib
+from loguru import logger
 
 
 from . import PlaceDB, DesignReader, SoftMacroReader
@@ -17,17 +18,14 @@ def build_soft_macro_placedb(reader: DesignReader, coverage: float = 0.95, gamma
     canvas_width, canvas_height = reader.canvas_size
     base_area = canvas_width / grid * canvas_height / grid
 
-    start_time = time.time()
     subgraph_list = graph_partition(graph, cache_tag=placedb.cache_tag, coverage=coverage, cache_root=cache_root)
 
     total_nodes, total_edges = 0, 0
     for i, subgraph in enumerate(subgraph_list):
         area = sum(subgraph.vs['area'])
-        print(f"Subgraph {i}: nodes = {len(subgraph.vs)} edges = {len(subgraph.es)} area = {area:.3e} area ratio: {area/base_area:.3f}")
+        logger.info(f"Subgraph {i}: nodes = {len(subgraph.vs)} edges = {len(subgraph.es)} area = {area:.3e} area ratio: {area/base_area:.3f}")
         total_nodes += len(subgraph.vs)
         total_edges += len(subgraph.es)
-    
-    print(f"Time used for graph cluster: {time.time() - start_time:.1f}")
 
     return PlaceDB(SoftMacroReader(reader, subgraph_list, gamma))
 
@@ -41,11 +39,11 @@ def placedb_to_graph(placedb: PlaceDB) -> ig.Graph:
     for net_name in placedb.net_info:
         source_info = placedb.net_info[net_name]["source"]
         if "node_type" not in source_info:
-            # print(f"{net_name=} is empty, skip")
+            # logger.info(f"{net_name=} is empty, skip")
             empty_nets += 1
             continue
         if source_info["node_type"] == "PIN":
-            # print(f"{net_name=} Input is PIN, skip")
+            # logger.info(f"{net_name=} Input is PIN, skip")
             pin_nets += 1
             continue
 
@@ -86,9 +84,9 @@ def placedb_to_graph(placedb: PlaceDB) -> ig.Graph:
             edges.append((node_name2id[node_name1], node_name2id[node_name2]))
             edge_attrs['weight'].append(weight)
             assert len(edges) == len(edge_attrs["weight"])
-    print(f"raw nets: {len(placedb.net_info)}, remove nets: {empty_nets+pin_nets} = (empty:{empty_nets}, pin:{pin_nets})")
+    logger.info(f"raw nets: {len(placedb.net_info)}, remove nets: {empty_nets+pin_nets} = (empty:{empty_nets}, pin:{pin_nets})")
     G = ig.Graph(len(node_name2id), edges, vertex_attrs=node_attrs, edge_attrs=edge_attrs)
-    print(f"stdcell in placedb: {len(placedb.cell_info)}, stdcell in graph: {len(G.vs)}")
+    logger.info(f"stdcell in placedb: {len(placedb.cell_info)}, stdcell in graph: {len(G.vs)}")
     return G
 
 
@@ -106,16 +104,16 @@ def graph_partition(
     if graph_partition_pkl is not None and graph_partition_pkl.exists():
         with gzip.open(graph_partition_pkl, "rb") as f:
             subgraphs, discards = pickle.load(f)
-        print(f"read graph partition result from {graph_partition_pkl}")
+        logger.info(f"read graph partition result from {graph_partition_pkl}")
     else:
         subgraphs, discards = graph_louvain(G, coverage)
         if graph_partition_pkl is not None:
             with gzip.open(graph_partition_pkl, "wb") as f:
                 pickle.dump((subgraphs, discards), f)
-            print(f"save graph partition result into {graph_partition_pkl}")
+            logger.info(f"save graph partition result into {graph_partition_pkl}")
 
     original_area = sum(G.vs['area'])
-    print(f"Original# node: {len(G.vs):.3e}, area:{original_area:.3e}, edge: {len(G.es):.3e}")
+    logger.info(f"Original# node: {len(G.vs):.3e}, area:{original_area:.3e}, edge: {len(G.es):.3e}")
 
     subgraph_node, subgraph_edge, subgraph_area = 0, 0, 0
     for graph in subgraphs:
@@ -123,14 +121,14 @@ def graph_partition(
         subgraph_edge += len(graph.es)
         subgraph_area += sum(graph.vs['area'])
 
-    print(f"Subgraph# node: {subgraph_node:.3e}, area:{subgraph_area:.3e}, edge: {subgraph_edge:.3e}")
+    logger.info(f"Subgraph# node: {subgraph_node:.3e}, area:{subgraph_area:.3e}, edge: {subgraph_edge:.3e}")
 
     discard_node, discard_edge, discard_area = 0, 0, 0
     for graph in discards:
         discard_node += len(graph.vs)
         discard_edge += len(graph.es)
         discard_area += sum(graph.vs['area'])
-    print(f"Discards# node: {discard_node:.3e}, area:{discard_area:.3e}, edge: {discard_edge:.3e}")
+    logger.info(f"Discards# node: {discard_node:.3e}, area:{discard_area:.3e}, edge: {discard_edge:.3e}")
 
     return subgraphs
 
@@ -143,7 +141,7 @@ def graph_louvain(G: ig.Graph, coverage:float=0.95) -> tuple[list[ig.Graph], lis
 
     t0 = time.time()
     communities = G.community_multilevel(weights='weight', resolution=1)
-    print(f"Time for louvain partition: {time.time() - t0:.2f}s")
+    logger.info(f"Time for louvain partition: {time.time() - t0:.2f}s")
 
     soft_macro = {}
     total_area, total_node, total_edge = 0, 0, 0
