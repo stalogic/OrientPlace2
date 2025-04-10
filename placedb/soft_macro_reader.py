@@ -30,7 +30,7 @@ class SoftMacroReader(DesignReader):
         node2soft_macro = {}
         soft_macro_list = []
         for i, subgraph in enumerate(subgraph_list):
-            area = sum([attr["area"] for _, attr in subgraph.nodes(data=True)])
+            area = sum(subgraph.vs['area'])
             macro_name = f"virtual/soft_macro_{i}"
             macro_type = f"SOFT_MACRO_{i}"
             macro = {
@@ -41,7 +41,7 @@ class SoftMacroReader(DesignReader):
             }
             self._place_node_dict[macro_name] = macro
             soft_macro_list.append(macro_name)
-            for node in subgraph.nodes():
+            for node in subgraph.vs["name"]:
                 node2soft_macro[node] = macro_name
 
             width = round(math.sqrt(area) * gamma)
@@ -56,6 +56,7 @@ class SoftMacroReader(DesignReader):
             }
 
         # 处理net相关信息
+        valid_macro = set()
         for net_name in reader.place_net_dict:
             node_set = set()
             nodes = []
@@ -72,7 +73,8 @@ class SoftMacroReader(DesignReader):
                     # discard node
                     pass
             # 仅保留hard macro或soft macro总数大于2的net
-            if len(nodes) >= 2:
+            if len(nodes) + len(reader.place_net_dict[net_name]["ports"]) >= 2:
+                valid_macro.update([n[0] for n in nodes])
                 self._place_net_dict[net_name] = {
                     "id": len(self._place_net_dict),
                     "key": net_name,
@@ -80,6 +82,16 @@ class SoftMacroReader(DesignReader):
                     "nodes": nodes,
                     "ports": reader.place_net_dict[net_name]["ports"],
                 }
+
+        # 移除没有合法net的soft macro
+        for soft_macro in soft_macro_list:
+            if soft_macro not in valid_macro:
+                macro_type = self._place_node_dict[soft_macro]["node_type"]
+                del self._node_phisical_info[macro_type]
+                del self._place_node_dict[soft_macro]
+                print(f"Remove: {soft_macro=}")
+
+
 
     @property
     def design_name(self) -> str:

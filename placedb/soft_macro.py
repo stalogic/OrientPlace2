@@ -1,9 +1,5 @@
 from itertools import combinations
-from scipy.stats import gmean
-from scipy.sparse import csr_matrix
-from sklearn.cluster import SpectralClustering
-import networkx as nx
-import numpy as np
+import igraph as ig
 import time
 import gzip
 import pickle
@@ -12,39 +8,45 @@ import pathlib
 
 from . import PlaceDB, DesignReader, SoftMacroReader
 
-def build_soft_macro_placedb(reader: DesignReader, gamma: float = 1.1) -> PlaceDB:
+def build_soft_macro_placedb(reader: DesignReader, coverage: float = 0.95, gamma: float = 1.1, grid:int=224, cache_root=None) -> PlaceDB:
     """
     Build a soft macro placedb from a place db.
     """
     placedb = PlaceDB(reader)
     graph = placedb_to_graph(placedb)
-    base_area = gmean([macro["width"] * macro["height"] for macro in placedb.hard_macro_info.values()])
+    canvas_width, canvas_height = reader.canvas_size
+    base_area = canvas_width / grid * canvas_height / grid
 
     start_time = time.time()
-    subgraph_list = graph_partition(graph, base_area, cache_tag=placedb.cache_tag)
+    subgraph_list = graph_partition(graph, cache_tag=placedb.cache_tag, coverage=coverage, cache_root=cache_root)
 
     total_nodes, total_edges = 0, 0
     for i, subgraph in enumerate(subgraph_list):
-        area = sum([attr["area"] for _, attr in subgraph.nodes(data=True)])
-        print(f"Subgraph {i}: nodes = {len(subgraph.nodes())} edges = {len(subgraph.edges())} area = {area:.3e} area ratio: {area/base_area:.3f}")
-        total_nodes += len(subgraph.nodes())
-        total_edges += len(subgraph.edges())
+        area = sum(subgraph.vs['area'])
+        print(f"Subgraph {i}: nodes = {len(subgraph.vs)} edges = {len(subgraph.es)} area = {area:.3e} area ratio: {area/base_area:.3f}")
+        total_nodes += len(subgraph.vs)
+        total_edges += len(subgraph.es)
     
     print(f"Time used for graph cluster: {time.time() - start_time:.1f}")
 
     return PlaceDB(SoftMacroReader(reader, subgraph_list, gamma))
 
 
-def placedb_to_graph(placedb: PlaceDB) -> nx.Graph:
-    G = nx.Graph()
-
+def placedb_to_graph(placedb: PlaceDB) -> ig.Graph:
+    edges = []
+    node_attrs = {'area': [], 'name': []}
+    edge_attrs = {'weight': []}
+    node_name2id = {}
+    empty_nets, pin_nets = 0, 0
     for net_name in placedb.net_info:
         source_info = placedb.net_info[net_name]["source"]
         if "node_type" not in source_info:
-            print(f"{net_name=} is empty, skip")
+            # print(f"{net_name=} is empty, skip")
+            empty_nets += 1
             continue
         if source_info["node_type"] == "PIN":
-            print(f"{net_name=} Input is PIN, skip")
+            # print(f"{net_name=} Input is PIN, skip")
+            pin_nets += 1
             continue
 
         net_nodes = placedb.net_info[net_name]["nodes"].values()
@@ -60,95 +62,125 @@ def placedb_to_graph(placedb: PlaceDB) -> nx.Graph:
             if node_name1 in placedb.port_info or node_name2 in placedb.port_info:
                 assert False
 
-            if node_name1 not in G:
+            if node_name1 not in node_name2id:
                 node_info = placedb.cell_info[node_name1]
                 width = node_info["width"]
                 height = node_info["height"]
-                G.add_node(node_name1, area=width * height)
+                node_name2id[node_name1] = len(node_name2id)
+                node_attrs["area"].append(width * height)
+                node_attrs["name"].append(node_name1)
+                assert len(node_name2id) == len(node_attrs["area"]) == len(node_attrs["name"])
 
-            if node_name2 not in G:
+            if node_name2 not in node_name2id:
                 node_info = placedb.cell_info[node_name2]
                 width = node_info["width"]
                 height = node_info["height"]
-                G.add_node(node_name2, area=width * height)
+                node_name2id[node_name2] = len(node_name2id)
+                node_attrs["area"].append(width * height)
+                node_attrs["name"].append(node_name2)
+                assert len(node_name2id) == len(node_attrs["area"]) == len(node_attrs["name"])
 
             pins1 = node1["pins"].keys()
             pins2 = node2["pins"].keys()
-            for pin1 in pins1:
-                for pin2 in pins2:
-                    G.add_edge(node_name1, node_name2, net_name=net_name, pin1=pin1, pin2=pin2)
-
+            weight = len(pins1) * len(pins2)
+            edges.append((node_name2id[node_name1], node_name2id[node_name2]))
+            edge_attrs['weight'].append(weight)
+            assert len(edges) == len(edge_attrs["weight"])
+    print(f"raw nets: {len(placedb.net_info)}, remove nets: {empty_nets+pin_nets} = (empty:{empty_nets}, pin:{pin_nets})")
+    G = ig.Graph(len(node_name2id), edges, vertex_attrs=node_attrs, edge_attrs=edge_attrs)
+    print(f"stdcell in placedb: {len(placedb.cell_info)}, stdcell in graph: {len(G.vs)}")
     return G
 
+
 def graph_partition(
-    G: nx.Graph,
-    base_area: float,
+    G: ig.Graph,
     cache_tag: str,
-    min_ratio=0.1,
-    max_ratio=1.5,
-    cache_root: str = "./cache",
-) -> list[nx.Graph]:
+    coverage: float,
+    cache_root: str = None,
+) -> list[ig.Graph]:
+    graph_partition_pkl = None
+    if cache_root is not None:
+        graph_partition_pkl = pathlib.Path(cache_root) / f"{cache_tag}_gp.pkl.gz"
 
-    cache_path = pathlib.Path(cache_root)
-    graph_partition_result = cache_path / f"{cache_tag}_gp.pkl.gz"
-    print(f"graph partition cache: {graph_partition_result.name}")
 
-    if graph_partition_result.exists():
-        with gzip.open(graph_partition_result, "rb") as f:
+    if graph_partition_pkl is not None and graph_partition_pkl.exists():
+        with gzip.open(graph_partition_pkl, "rb") as f:
             subgraphs, discards = pickle.load(f)
-        print(f"read graph partition result from {graph_partition_result}")
+        print(f"read graph partition result from {graph_partition_pkl}")
     else:
-        # 使用谱聚类算法
-        sc = SpectralClustering(2, affinity="precomputed", random_state=0)
-        print(f"{' start graph partition ':#^80}")
-        subgraphs, discards = clustering_and_partition(sc, G, base_area, min_ratio, max_ratio)
-        print(f"{' finish graph partition ':#^80}")
-        with gzip.open(graph_partition_result, "wb") as f:
-            pickle.dump((subgraphs, discards), f)
-        print(f"save graph partition result into {graph_partition_result}")
+        subgraphs, discards = graph_louvain(G, coverage)
+        if graph_partition_pkl is not None:
+            with gzip.open(graph_partition_pkl, "wb") as f:
+                pickle.dump((subgraphs, discards), f)
+            print(f"save graph partition result into {graph_partition_pkl}")
 
-    original_area = sum([node["area"] for _, node in G.nodes(data=True)])
-    print(f"Original# node: {len(G.nodes):.3e}, area:{original_area:.3e}, edge: {len(G.edges):.3e}")
+    original_area = sum(G.vs['area'])
+    print(f"Original# node: {len(G.vs):.3e}, area:{original_area:.3e}, edge: {len(G.es):.3e}")
 
     subgraph_node, subgraph_edge, subgraph_area = 0, 0, 0
     for graph in subgraphs:
-        subgraph_node += len(graph.nodes)
-        subgraph_edge += len(graph.edges)
-        subgraph_area += sum([node["area"] for _, node in graph.nodes(data=True)])
+        subgraph_node += len(graph.vs)
+        subgraph_edge += len(graph.es)
+        subgraph_area += sum(graph.vs['area'])
 
     print(f"Subgraph# node: {subgraph_node:.3e}, area:{subgraph_area:.3e}, edge: {subgraph_edge:.3e}")
 
     discard_node, discard_edge, discard_area = 0, 0, 0
     for graph in discards:
-        discard_node += len(graph.nodes)
-        discard_edge += len(graph.edges)
-        discard_area += sum([node["area"] for _, node in graph.nodes(data=True)])
+        discard_node += len(graph.vs)
+        discard_edge += len(graph.es)
+        discard_area += sum(graph.vs['area'])
     print(f"Discards# node: {discard_node:.3e}, area:{discard_area:.3e}, edge: {discard_edge:.3e}")
 
     return subgraphs
 
-def clustering_and_partition(sc: SpectralClustering, G: nx.Graph, base_area: float, min_ratio=0.1, max_ratio=1.5) -> tuple[list[nx.Graph], list[nx.Graph]]:
+def graph_louvain(G: ig.Graph, coverage:float=0.95) -> tuple[list[ig.Graph], list[ig.Graph]]:
 
-    # 获取图的邻接矩阵
-    adj_matrix: np.ndarray = nx.to_numpy_array(G, dtype="bool")
-    sprase_matrix = csr_matrix(adj_matrix)
-    labels = sc.fit_predict(sprase_matrix)
-    subgraphs = []
-    discards = []
-    num_clusters = 2
-    for i in range(num_clusters):
-        subgraph_nodes = [node for node, label in zip(G.nodes(), labels) if label == i]
-        subgraph: nx.Graph = G.subgraph(subgraph_nodes)
-        subgraph_area = sum([node["area"] for _, node in subgraph.nodes(data=True)])
-        print(f"sub graph# node:{len(subgraph.nodes)}, edge: {len(subgraph.edges)}, area: {subgraph_area:.3e}")
+    assert isinstance(G, ig.Graph)
+    assert 'weight' in G.es.attribute_names()
+    assert 'area' in G.vs.attribute_names()
+    assert 0 < coverage <= 1
 
-        if subgraph_area > max_ratio * base_area:
-            graphs, discard_graphs = clustering_and_partition(sc, subgraph, base_area, min_ratio, max_ratio)
-            subgraphs.extend(graphs)
-            discards.extend(discard_graphs)
-        elif min_ratio is not None and subgraph_area < min_ratio * base_area:
-            discards.append(subgraph)
+    t0 = time.time()
+    communities = G.community_multilevel(weights='weight', resolution=1)
+    print(f"Time for louvain partition: {time.time() - t0:.2f}s")
+
+    soft_macro = {}
+    total_area, total_node, total_edge = 0, 0, 0
+    for i, community in enumerate(communities):
+
+        subgraph = G.subgraph(community)
+        area = sum(subgraph.vs['area'])
+        node = len(subgraph.vs)
+        edge = len(subgraph.es)
+
+        soft_macro[i] = {
+            'graph': subgraph,
+            'area': area,
+            'node': node,
+            'edge': edge
+        }
+        total_area += area
+        total_node += node
+        total_edge += edge
+
+    subgraphs, discards = [], []
+    cum_area, cum_node, cum_edge = 0, 0, 0
+    area_threshold = total_area * coverage
+    node_threshold = total_node * coverage
+    edge_threshold = total_edge * coverage
+    for _, info in sorted(soft_macro.items(), key=lambda x:x[1]['area'], reverse=True):
+        area = info['area']
+        node = info['node']
+        edge = info['edge']
+        cum_area += area
+        cum_node += node
+        cum_edge += edge
+
+        if cum_area < area_threshold or cum_node < node_threshold or cum_edge < edge_threshold:
+            subgraphs.append(info['graph'])
         else:
-            subgraphs.append(subgraph)
+            discards.append(info['graph'])
+
     return subgraphs, discards
     
