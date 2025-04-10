@@ -75,7 +75,7 @@ data_table = reverb.Table(
     sampler=reverb.selectors.MaxHeap(),
     remover=reverb.selectors.MinHeap(),
     max_size=200,
-    rate_limiter=reverb.rate_limiters.MinSize(1),
+    rate_limiter=reverb.rate_limiters.SampleToInsertRatio(1, 5, 1),
     max_times_sampled=1,
     signature=data_signature
 )

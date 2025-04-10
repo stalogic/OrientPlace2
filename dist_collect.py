@@ -1,6 +1,6 @@
 import gym
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
 from model import OrientPPO
@@ -51,7 +51,10 @@ model_info = reverb.TimestepDataset.from_table_signature(
 )
 
 while True:
+    t0 = time.time()
     model = next(iter(model_info.take(1)))
+    print(f"Read model from reverb server: {time.time() - t0:.2f}s")
+    t0 = time.time()
     model_data = model.data
     model_data = tf.nest.map_structure(tf_to_torch, model_data)
     model_id = model_data.pop('model_id').numpy().item()
@@ -60,6 +63,7 @@ while True:
     agent.orient_actor_net.load_state_dict(orient_actor)
     place_actor = model_data['place_actor']
     agent.place_actor_net.load_state_dict(place_actor)
+    print(f"Load model state dict: {time.time() - t0:.2f}s")
 
     state = env.reset()
     done = False
@@ -83,6 +87,7 @@ while True:
             })
             state = next_state
         print(f"game time: {time.time() - t0:.2f}s")
+        t0 = time.time()
         writer.create_item('experience', model_id, 
                         trajectory= {
                             'state': writer.history['state'][:],
@@ -96,3 +101,4 @@ while True:
                             'model_id': writer.history['model_id'][-1]
                         })
         writer.flush()
+        print(f"Push trajectory {time.time() - t0:.2f}s")

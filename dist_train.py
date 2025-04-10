@@ -63,7 +63,7 @@ for model_id in range(20):
     client.insert([variables], priorities={'model_info': model_id})
     
     episodes = []
-    batch_size = 5
+    batch_size = 100
     t0 = time.time()
     discard = 0
     while len(episodes) < batch_size:
