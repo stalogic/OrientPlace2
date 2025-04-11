@@ -3,6 +3,7 @@ from .base_placedb import BasePlaceDB
 from .base_reader import DesignReader
 from functools import cached_property
 import os
+import math
 
 class PlaceDB(BasePlaceDB):
 
@@ -195,7 +196,12 @@ class PlaceDB(BasePlaceDB):
                 residual_weight = sum([macro_adjancy[macro].get(other, 0) for other in residual_set])
                 target_weight = sum([macro_adjancy[macro].get(other, 0) for other in target_set])
 
-                weight = (target_weight * residual_weight, target_weight, residual_weight)
+                weight = target_weight * residual_weight
+                area = self.macro_info[macro]["width"] * self.macro_info[macro]["height"]
+                weight_level = round(math.log(weight + 1))
+                area_level = round(math.log(area + 1))
+                weight = (weight_level, area_level, area, weight)
+
                 if max_macro is None or weight > max_weight:
                     max_macro, max_weight = macro, weight
             assert max_macro is not None
