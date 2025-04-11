@@ -493,9 +493,6 @@ class OrientPlaceEnv(gym.Env):
         for img in res:
             img = np.array(img)
             assert np.min(img) >= 0
-            max_val = np.max(img)
-            if max_val > 0:
-                img = img / max_val
             wire_imgs.append(img)
 
         return np.array(wire_imgs)

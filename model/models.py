@@ -57,6 +57,15 @@ class Actor(nn.Module):
         pos_mask: torch.Tensor,
         soft_coefficient: float = 1.0,
     ):
+        batch_size = canvas.shape[0]
+        assert canvas.shape == (batch_size, 1, self.grid, self.grid)
+        assert wire_img.shape == (batch_size, 1, self.grid, self.grid)
+        assert pos_mask.shape == (batch_size, 1, self.grid, self.grid)
+
+        # 对wire_img进行归一化，体现不同位置的hpwl增量差异
+        stds, means = torch.std_mean(wire_img, dim=(2,3), keepdim=True) # N, 1, 1, 1
+        wire_img = (wire_img - means) / (stds + 1e-5)  # N, 1, 224, 224
+
         cnn_in = torch.concat([wire_img, pos_mask], dim=1)
         cnn_out = self.cnn(cnn_in)
 
@@ -145,6 +154,10 @@ class OrientActor(nn.Module):
         assert canvas.shape == (batch_size, 8, 224, 224)
         assert wire_img.shape == (batch_size, 8, 224, 224)
         assert pos_mask.shape == (batch_size, 8, 224, 224)
+
+        # wire_img 针对channel维度进行归一化，体现不同orient的差异
+        stds, means = torch.std_mean(wire_img, dim=1, keepdim=True) # N, 1, 224, 224
+        wire_img = (wire_img - means) / (stds + 1e-5)  # N, 8, 224, 224
 
         reshaped_canvas = canvas.reshape(-1, 224, 224) # 8N, 224, 224
         reshaped_wire_img = wire_img.reshape(-1, 224, 224)  # 8N, 224, 224
