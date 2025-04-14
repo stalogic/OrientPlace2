@@ -87,14 +87,31 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self):
         super(Critic, self).__init__()
-        self.fc1 = nn.Linear(64 * 2, 64)
+        self.cnn = torchvision.models.resnet18(pretrained=True)
+        self.cnn.fc = torch.nn.Linear(512, 64)
+        self.fc1 = nn.Linear(64 * 3, 64)
         self.fc2 = nn.Linear(64, 64)
         self.state_value = nn.Linear(64, 1)
-        self.pos_emb = nn.Embedding(1400, 64)
-        self.ori_emb = nn.Embedding(8, 64)
+        self.macro_emb = nn.Embedding(1400, 64)
+        self.orient_emb = nn.Embedding(8, 64)
 
-    def forward(self, macro_id: torch.Tensor, oritnt: torch.Tensor):
-        x0 = torch.concat([self.pos_emb(macro_id.long()), self.ori_emb(oritnt.long())], axis=1)
+    def forward(self, canvas: torch.Tensor, wire_img: torch.Tensor, pos_mask: torch.Tensor, macro_id: torch.Tensor, oritnt: torch.Tensor):
+        batch_size = canvas.shape[0]
+        assert canvas.shape == (batch_size, 1, 224, 224)
+        assert wire_img.shape == (batch_size, 1, 224, 224)
+        assert pos_mask.shape == (batch_size, 1, 224, 224)
+        # 对wire_img进行归一化，体现不同位置的hpwl增量差异
+        stds, means = torch.std_mean(wire_img, dim=(2,3), keepdim=True) # N, 1, 1, 1
+        wire_img = (wire_img - means) / (stds + 1e-5) # N, 1, 224, 224
+
+        cnn_in = torch.concat([canvas, pos_mask, wire_img], dim=1) # N, 3, 224, 224
+        cnn_embs = self.cnn(cnn_in).reshape(batch_size, -1) # N, 64
+        assert cnn_embs.shape == (batch_size, 64)
+
+        macro_embs = self.macro_emb(macro_id.long()) # N, 64
+        orient_embs = self.orient_emb(oritnt.long()) # N, 64
+
+        x0 = torch.concat([macro_embs, orient_embs, cnn_embs], axis=1)
         x1 = F.relu(self.fc1(x0))
         x2 = F.relu(self.fc2(x1))
         value = self.state_value(x2)
@@ -176,14 +193,36 @@ class OrientActor(nn.Module):
 class OrientCritic(nn.Module):
     def __init__(self):
         super(OrientCritic, self).__init__()
-        self.fc1 = nn.Linear(64, 64)
+        self.cnn = torchvision.models.resnet18(pretrained=True)
+        self.cnn.fc = torch.nn.Linear(512, 8)
+        self.fc1 = nn.Linear(64 * 2, 64)
         self.fc2 = nn.Linear(64, 64)
         self.state_value = nn.Linear(64, 1)
-        self.pos_emb = nn.Embedding(1400, 64)
+        self.macro_emb = nn.Embedding(1400, 64)
 
-    def forward(self, macro_id: torch.Tensor):
-        emb = self.pos_emb(macro_id.long())
-        x1 = F.relu(self.fc1(emb))
+    def forward(self, canvas: torch.Tensor, wire_img: torch.Tensor, pos_mask: torch.Tensor, macro_id: torch.Tensor):
+        batch_size = canvas.shape[0]
+        canvas = torch.tile(canvas, (1, 8, 1, 1))
+        assert canvas.shape == (batch_size, 8, 224, 224)
+        assert wire_img.shape == (batch_size, 8, 224, 224)
+        assert pos_mask.shape == (batch_size, 8, 224, 224)
+
+        # wire_img 针对channel维度进行归一化，体现不同orient的差异
+        stds, means = torch.std_mean(wire_img, dim=1, keepdim=True) # N, 1, 224, 224
+        wire_img = (wire_img - means) / (stds + 1e-5)  # N, 8, 224, 224
+
+        reshaped_canvas = canvas.reshape(-1, 224, 224) # 8N, 224, 224
+        reshaped_wire_img = wire_img.reshape(-1, 224, 224)  # 8N, 224, 224
+        reshaped_pos_mask = pos_mask.reshape(-1, 224, 224)  # 8N, 224, 224
+
+        stacked_input = torch.stack((reshaped_canvas, reshaped_wire_img, reshaped_pos_mask), dim=1) # 8N, 3, 224, 224
+        cnn_out = self.cnn(stacked_input)   # 8N, 8
+        cnn_embs = cnn_out.reshape(batch_size, -1) # N, 8*8
+        assert cnn_embs.shape == (batch_size, 64)
+
+        macro_embs = self.macro_emb(macro_id.long())
+        x0 = torch.concat([macro_embs, cnn_embs], axis=1)
+        x1 = F.relu(self.fc1(x0))
         x2 = F.relu(self.fc2(x1))
         value = self.state_value(x2)
         return value

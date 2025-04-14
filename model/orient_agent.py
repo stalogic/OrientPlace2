@@ -178,7 +178,7 @@ class OrientPPO:
         action_log_prob = dist.log_prob(batch_action.squeeze())
         ratio = torch.exp(action_log_prob - batch_old_action_log_prob.squeeze())
 
-        critic_net_output = self.place_critic_net(batch_state[:, -3], batch_orient[:, 0])
+        critic_net_output = self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0])
         advantage = (batch_target - critic_net_output).detach()
 
         L1 = ratio * advantage.squeeze()
@@ -190,7 +190,7 @@ class OrientPPO:
         nn.utils.clip_grad_norm_(self.place_actor_net.parameters(), self.max_grad_norm)
         self.place_actor_optimizer.step()
 
-        value_loss = F.smooth_l1_loss(self.place_critic_net(batch_state[:, -3], batch_orient[:, 0]), batch_target)
+        value_loss = F.smooth_l1_loss(self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0]), batch_target)
         self.place_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
@@ -207,7 +207,7 @@ class OrientPPO:
         orient_log_prob = dist.log_prob(batch_orient.squeeze())
         ratio = torch.exp(orient_log_prob - batch_old_orient_log_prob.squeeze())
 
-        critic_net_output = self.orient_critic_net(batch_state[:, -3])
+        critic_net_output = self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3])
         advantage = (batch_target - critic_net_output).detach()
 
         L1 = ratio * advantage.squeeze()
@@ -219,7 +219,7 @@ class OrientPPO:
         nn.utils.clip_grad_norm_(self.orient_actor_net.parameters(), self.max_grad_norm)
         self.orient_actor_optimizer.step()
 
-        value_loss = F.smooth_l1_loss(self.orient_critic_net(batch_state[:, -3]), batch_target)
+        value_loss = F.smooth_l1_loss(self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3]), batch_target)
         self.orient_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_critic_net.parameters(), self.max_grad_norm)
