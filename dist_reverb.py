@@ -1,25 +1,31 @@
-import reverb
 import os
 import gym
-import tensorflow as tf
-import time
 import torch
-import numpy as np
+import reverb
+import argparse
+import tensorflow as tf
+
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
-PROJECT_ROOT = "/home/jiangmingming/mntspace/OrientPlace2"
-
 from model import OrientPPO
+from reverb_util import to_tf_dtype
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--design_name", type=str, default="ariane133")
+parser.add_argument("--project_root", type=str, default=".")
+
+parser.add_argument("--seed", type=int, default=None)
+parser.add_argument("--reverb_ip", type=str, default="localhost")
+parser.add_argument("--reverb_port", type=int, default=12888)
+parser.add_argument("--cuda", type=str, default="")
+args = parser.parse_args()
+
+PROJECT_ROOT = args.project_root
 data_root = os.path.join(PROJECT_ROOT, "benchmark")
-design_name = "ariane133"
 cache_root = os.path.join(PROJECT_ROOT, "cache")
-reader = LefDefReader(data_root, design_name, cache_root)
+reader = LefDefReader(data_root, args.design_name, cache_root)
 placedb = build_soft_macro_placedb(reader)
-
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
-
-
 placed_num_macro = len(placedb.macro_info)
 agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=5, batch_size=128, lr=1e-5, gamma=0.98, device='cpu')
 agent.CANVAS_SLICE = env.CANVAS_SLICE
@@ -32,16 +38,6 @@ variables = {
     'place_actor': agent.place_actor_net.state_dict(),
     'model_id': torch.tensor(0, dtype=torch.int64)
 }
-
-def to_tf_dtype(torch_dtype):
-    dtype_mapping = {
-        torch.float32: tf.float32,
-        torch.float64: tf.float64,
-        torch.int32: tf.int32,
-        torch.int64: tf.int64,
-        torch.bool: tf.bool
-    }
-    return dtype_mapping[torch_dtype]
 
 model_signature = tf.nest.map_structure(
     lambda var: tf.TensorSpec(var.shape, to_tf_dtype(var.dtype)),
@@ -80,7 +76,7 @@ data_table = reverb.Table(
     signature=data_signature
 )
 
-server = reverb.Server([model_table, data_table], port=12888)
+server = reverb.Server([model_table, data_table], port=args.port)
 del env
 del agent
 del placedb
