@@ -155,7 +155,7 @@ def main():
         running_reward = running_reward * 0.9 + score * 0.1
         print(f"score = {score:.3e}, raw_score = {raw_score:.3e}")
 
-        if hasattr(agent, "placer_ok") and not agent.placer_ok and abs(score) < 1000000:
+        if hasattr(agent, "placer_ok") and not agent.placer_ok and abs(score) < 800000:
             agent.placer_ok = True
             print("Placer is ready for orient training.")
 
