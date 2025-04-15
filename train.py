@@ -114,10 +114,10 @@ def main():
 
     running_reward = -float("inf")
     best_reward = running_reward
-    last_result = 0
+    last_record = 0
 
     for i_epoch in range(args.total_episodes):
-        last_result -= 1
+        last_record -= 1
         score = 0
         raw_score = 0
         start = time.time()
@@ -159,9 +159,9 @@ def main():
             agent.placer_ok = True
             print("Placer is ready for orient training.")
 
-        if running_reward > best_reward * args.update_threshold_ratio or args.debug or last_result <= 0:
+        if running_reward > best_reward * args.update_threshold_ratio or args.debug or last_record <= 0:
             best_reward = running_reward
-            last_result = 100
+            last_record = 100
             try:
                 print("start try")
                 # cost is the routing estimation based on the MST algorithm
