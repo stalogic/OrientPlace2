@@ -86,6 +86,9 @@ class OrientPPO:
         pos_mask = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
 
         with torch.no_grad():
+            self.orient_actor_net.eval()
+            self.place_actor_net.eval()
+
             orient_probs = self.orient_actor_net(canvas, wire_img, pos_mask)
             orient_dist = Categorical(orient_probs)
             orient = orient_dist.sample()
@@ -98,6 +101,9 @@ class OrientPPO:
             action_dist = Categorical(action_probs)
             action = action_dist.sample()
             action_log_prob = action_dist.log_prob(action)
+
+            self.orient_actor_net.train()
+            self.place_actor_net.train()
         return orient.item(), action.item(), orient_prob.item(), action_log_prob.item()
     
     def _update_train_flag(self):
@@ -126,25 +132,33 @@ class OrientPPO:
 
 
     @trackit
-    def update(self) -> None:
+    def update(self, data:dict=None) -> None:
 
-        target_list = []
-        target = None
-        for transition in reversed(self.buffer):
-            if transition.done:
-                target = 0
-            target = transition.reward + self.gamma * target
-            target_list.append(target)
-        target_list.reverse()
-        target_v = torch.tensor(np.array(target_list), dtype=torch.float).view(-1, 1).to(self.device)
-
-        state = torch.tensor(np.array([t.state for t in self.buffer]), dtype=torch.float)
-        orient = torch.tensor(np.array([t.orient for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-        action = torch.tensor(np.array([t.action for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-        old_action_log_prob = torch.tensor(np.array([t.a_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-        old_orient_log_prob = torch.tensor(np.array([t.o_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-
-        self.buffer.clear()
+        if data is None:
+            # 单机模式，数据来自buffer
+            target_list = []
+            target = None
+            for transition in reversed(self.buffer):
+                if transition.done:
+                    target = 0
+                target = transition.reward + self.gamma * target
+                target_list.append(target)
+            target_list.reverse()
+            target_v = torch.tensor(np.array(target_list), dtype=torch.float).view(-1, 1).to(self.device)
+            state = torch.tensor(np.array([t.state for t in self.buffer]), dtype=torch.float)
+            orient = torch.tensor(np.array([t.orient for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
+            action = torch.tensor(np.array([t.action for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
+            old_action_log_prob = torch.tensor(np.array([t.a_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
+            old_orient_log_prob = torch.tensor(np.array([t.o_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
+            self.buffer.clear()
+        else:
+            # 分布式训练，数据来自reverb
+            target_v = torch.tensor(data['return'], dtype=torch.float).to(self.device)
+            state = torch.tensor(data['state'], dtype=torch.float).to(self.device)
+            orient = torch.tensor(data['orient'], dtype=torch.float).to(self.device)
+            action = torch.tensor(data['action'], dtype=torch.float).to(self.device)
+            old_action_log_prob = torch.tensor(data['a_log_prob'], dtype=torch.float).to(self.device)
+            old_orient_log_prob = torch.tensor(data['o_log_prob'], dtype=torch.float).to(self.device)
 
         for _ in range(self.ppo_epoch):  # iteration ppo_epoch
             for index in BatchSampler(SubsetRandomSampler(range(self.buffer_capacity)), self.batch_size, True):
@@ -178,8 +192,11 @@ class OrientPPO:
         action_log_prob = dist.log_prob(batch_action.squeeze())
         ratio = torch.exp(action_log_prob - batch_old_action_log_prob.squeeze())
 
-        critic_net_output = self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0])
-        advantage = (batch_target - critic_net_output).detach()
+        with torch.no_grad():
+            self.place_critic_net.eval()
+            critic_net_output = self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0])
+            advantage = (batch_target - critic_net_output).detach()
+            self.place_critic_net.train()
 
         L1 = ratio * advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage.squeeze()
@@ -207,8 +224,11 @@ class OrientPPO:
         orient_log_prob = dist.log_prob(batch_orient.squeeze())
         ratio = torch.exp(orient_log_prob - batch_old_orient_log_prob.squeeze())
 
-        critic_net_output = self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3])
-        advantage = (batch_target - critic_net_output).detach()
+        with torch.no_grad():
+            self.orient_critic_net.eval()
+            critic_net_output = self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3])
+            advantage = (batch_target - critic_net_output).detach()
+            self.orient_critic_net.train()
 
         L1 = ratio * advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage.squeeze()

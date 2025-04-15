@@ -24,7 +24,7 @@ PROJECT_ROOT = args.project_root
 data_root = os.path.join(PROJECT_ROOT, "benchmark")
 cache_root = os.path.join(PROJECT_ROOT, "cache")
 reader = LefDefReader(data_root, args.design_name, cache_root)
-placedb = build_soft_macro_placedb(reader)
+placedb = build_soft_macro_placedb(reader, cache_root=cache_root)
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
 placed_num_macro = len(placedb.macro_info)
 agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=5, batch_size=128, lr=1e-5, gamma=0.98, device='cpu')
@@ -63,6 +63,7 @@ data_signature = {
     'reward': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'next_state': tf.TensorSpec(shape=[None, 852995], dtype=tf.float64),
     'done': tf.TensorSpec(shape=[None], dtype=tf.bool),
+    'return': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'model_id': tf.TensorSpec(shape=[], dtype=tf.int64),
 }
 
@@ -71,12 +72,12 @@ data_table = reverb.Table(
     sampler=reverb.selectors.MaxHeap(),
     remover=reverb.selectors.MinHeap(),
     max_size=200,
-    rate_limiter=reverb.rate_limiters.SampleToInsertRatio(1, 5, 1),
+    rate_limiter=reverb.rate_limiters.SampleToInsertRatio(1, 5, [5, 10]),
     max_times_sampled=1,
     signature=data_signature
 )
 
-server = reverb.Server([model_table, data_table], port=args.port)
+server = reverb.Server([model_table, data_table], port=args.reverb_port)
 del env
 del agent
 del placedb
