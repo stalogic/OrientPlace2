@@ -12,7 +12,7 @@ from collections import defaultdict
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
 from model import OrientPPO
-from reverb_util import torch_to_tf
+from reverb_util import torch_to_tf, PlaceTrajectoryDataset
 from util import set_random_seed
 
 parser = argparse.ArgumentParser()
@@ -20,7 +20,7 @@ parser.add_argument("--design_name", type=str, default="ariane133")
 parser.add_argument("--project_root", type=str, default=".")
 
 parser.add_argument("--mini_batch", type=int, default=128)
-parser.add_argument("--reverb_batch", type=int, default=5)
+parser.add_argument("--reverb_batch", type=int, default=10)
 parser.add_argument("--model_iterations", type=int, default=2000, help="model iteration")
 
 parser.add_argument("--seed", type=int, default=None)
@@ -53,42 +53,10 @@ REVERB_ADDR = f"{args.reverb_ip}:{args.reverb_port}"
 dataset = reverb.TrajectoryDataset.from_table_signature(
     server_address=REVERB_ADDR,
     table='experience',
-    max_in_flight_samples_per_worker=2
+    max_in_flight_samples_per_worker=2 * args.reverb_batch,
 ).batch(args.reverb_batch)
 
-def get_batch_generator(dataset: reverb.TrajectoryDataset, batch_size: int, info: dict):
-    batches = defaultdict(list)
-    while True:
-        batch = next(iter(dataset.take(1)))
-        model_id = info["model_id"]
-        print(f"model_id: {model_id}")
-        batch = tf.nest.map_structure(lambda x: x.numpy(), batch.data)
-        model_ids = batch.pop('model_id')
-        print(f"{model_ids.shape=} {model_ids}")
-        
-        valid_mask = model_ids == model_id
-        batch = tf.nest.map_structure(lambda x: x[valid_mask], batch)
-        print(f"valid batch: {len(batch['state'])}, {valid_mask=}")
-        for i in range(len(batch['state'])):
-            for key, value in batch.items():
-                batches[key].append(value[i])
-            if len(batches[key]) >= batch_size:
-                for key, value in batches.items():
-                    print(f"{key}: {len(value)}, {value[0].shape}")
-                
-                result = {}
-                for key, value in batches.items():
-                    value = np.concatenate(value, axis=0)
-                    if len(value.shape) == 1:
-                        value = np.expand_dims(value, axis=1)
-                    elif len(value.shape) > 2:
-                        raise ValueError(f"Invalid shape: {value.shape} for `{key}`")
-                    result[key] = value
-                yield result
-                batches.clear()
-
-info = {'model_id': 0}
-batch_generator = get_batch_generator(dataset, 10, info)
+batch_reader = PlaceTrajectoryDataset(dataset, batch_size=args.reverb_batch)
 
 def train():
 
@@ -103,13 +71,18 @@ def train():
         variables = tf.nest.map_structure(torch_to_tf, variables)
         client.insert([variables], priorities={'model_info': model_id})
 
-        info["model_id"] = model_id
-        t0 = time.time()
+        data_time, update_time = [], []
         for _ in range(10):
-            data = next(batch_generator)
+            t0 = time.time()
+            data = batch_reader.read(model_id=model_id)
+            t1 = time.time()
             agent.update(data)
+            t2 = time.time()
+            data_time.append(t1 - t0)
+            update_time.append(t2 - t1)
+            logger.info(f"model_id: {model_id}, data_time: {data_time[-1]:.2f}, update_time: {update_time[-1]:.2f}")
 
-        logger.info(f"model_id: {model_id} trained, time: {time.time() - t0:.2f}s")
+        logger.info(f"model_id: {model_id} trained, data_time: {sum(data_time):.2f}, update_time: {sum(update_time):.2f}")
 
 if __name__ == "__main__":
     train()

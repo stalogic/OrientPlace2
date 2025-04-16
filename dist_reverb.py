@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--design_name", type=str, default="ariane133")
 parser.add_argument("--project_root", type=str, default=".")
 
+parser.add_argument("--reverb_batch", type=int, default=10)
+
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--reverb_ip", type=str, default="localhost")
 parser.add_argument("--reverb_port", type=int, default=12888)
@@ -71,8 +73,8 @@ data_table = reverb.Table(
     name="experience",
     sampler=reverb.selectors.MaxHeap(),
     remover=reverb.selectors.MinHeap(),
-    max_size=200,
-    rate_limiter=reverb.rate_limiters.SampleToInsertRatio(1, 5, [5, 10]),
+    max_size=20,
+    rate_limiter=reverb.rate_limiters.SampleToInsertRatio(1, args.reverb_batch, [args.reverb_batch, args.reverb_batch*2]),
     max_times_sampled=1,
     signature=data_signature
 )
