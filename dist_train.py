@@ -6,8 +6,8 @@ import reverb
 import argparse
 import numpy as np
 import tensorflow as tf
+from pathlib import Path
 from loguru import logger
-from collections import defaultdict
 
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
@@ -22,6 +22,7 @@ parser.add_argument("--project_root", type=str, default=".")
 parser.add_argument("--mini_batch", type=int, default=128)
 parser.add_argument("--reverb_batch", type=int, default=10)
 parser.add_argument("--model_iterations", type=int, default=2000, help="model iteration")
+parser.add_argument("--iter_per_model", type=int, default=10, help="iteration per model")
 
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--reverb_ip", type=str, default="localhost")
@@ -35,9 +36,9 @@ set_random_seed(args.seed)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
 
-PROJECT_ROOT = args.project_root
-data_root = os.path.join(PROJECT_ROOT, "benchmark")
-cache_root = os.path.join(PROJECT_ROOT, "cache")
+PROJECT_ROOT = Path(args.project_root)
+data_root = PROJECT_ROOT / "benchmark"
+cache_root = PROJECT_ROOT / "cache"
 reader = LefDefReader(data_root, args.design_name, cache_root)
 placedb = build_soft_macro_placedb(reader, cache_root=cache_root)
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
@@ -47,6 +48,11 @@ agent.CANVAS_SLICE = env.CANVAS_SLICE
 agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
 agent.FEATURE_SLICE = env.FEATURE_SLICE
+
+strftime = time.strftime("%m%d%H%M", time.localtime())
+run_id = f"{args.design_name}_{strftime}_pnm_{placed_num_macro}_seed_{args.seed}"
+RESULT_ROOT = PROJECT_ROOT / "result" / run_id
+RESULT_ROOT.mkdir(parents=True, exist_ok=True)
 
 REVERB_ADDR = f"{args.reverb_ip}:{args.reverb_port}"
 
@@ -59,10 +65,11 @@ dataset = reverb.TrajectoryDataset.from_table_signature(
 batch_reader = PlaceTrajectoryDataset(dataset, batch_size=args.reverb_batch)
 
 def train():
-
     client = reverb.Client(REVERB_ADDR)
-
+    logger.info(f"start training, model_iterations: {args.model_iterations}, iter_per_model: {args.iter_per_model}")
     for model_id in range(args.model_iterations):
+        t0 = time.time()
+        agent.save_model(RESULT_ROOT / "checkpoints", f"M{model_id}")
         variables = {
             'orient_actor': agent.orient_actor_net.state_dict(),
             'place_actor': agent.place_actor_net.state_dict(),
@@ -70,19 +77,20 @@ def train():
         }
         variables = tf.nest.map_structure(torch_to_tf, variables)
         client.insert([variables], priorities={'model_info': model_id})
+        save_time = time.time() - t0
 
-        data_time, update_time = [], []
-        for _ in range(10):
+        data_time, update_time = 0, 0
+        for i in range(args.iter_per_model):
             t0 = time.time()
             data = batch_reader.read(model_id=model_id)
             t1 = time.time()
             agent.update(data)
             t2 = time.time()
-            data_time.append(t1 - t0)
-            update_time.append(t2 - t1)
-            logger.info(f"model_id: {model_id}, data_time: {data_time[-1]:.2f}, update_time: {update_time[-1]:.2f}")
+            data_time += t1 - t0
+            update_time += t2 - t1
+            logger.info(f"iter: {i+1}{args.iter_per_model}, model_id: {model_id}, data_time: {t1 - t0:.3f}, update_time: {t2 - t1:.3f}")
 
-        logger.info(f"model_id: {model_id} trained, data_time: {sum(data_time):.2f}, update_time: {sum(update_time):.2f}")
+        logger.info(f"model_id: {model_id} trained, save_time: {save_time:.3f} data_time: {data_time:.3f}, update_time: {update_time:.3f}")
 
 if __name__ == "__main__":
     train()

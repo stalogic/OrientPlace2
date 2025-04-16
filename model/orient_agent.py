@@ -1,10 +1,10 @@
-import random
-
+import gzip
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from pathlib import Path
 from torch.distributions import Categorical
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
@@ -58,19 +58,25 @@ class OrientPPO:
         self.POS_SLICE = None
         self.FEATURE_SLICE = None
 
-    def load_param(self, path):
-        checkpoint = torch.load(path, map_location=torch.device(self.device))
-        self.place_actor_net.load_state_dict(checkpoint["actor_net_dict"])
-        self.place_critic_net.load_state_dict(checkpoint["critic_net_dict"])
+    def load_model(self, path: Path):
+        with gzip.open(path, "rb") as f:
+            checkpoint = torch.load(f, map_location=torch.device(self.device))
+            self.place_actor_net.load_state_dict(checkpoint["place_actor_net"])
+            self.place_critic_net.load_state_dict(checkpoint["place_critic_net"])
+            self.orient_actor_net.load_state_dict(checkpoint["orient_actor_net"])
 
-    def save_param(self, save_flag):
-        torch.save(
-            {
-                "actor_net_dict": self.place_actor_net.state_dict(),
-                "critic_net_dict": self.place_critic_net.state_dict(),
-            },
-            f"{save_flag}_net_dict.pkl",
-        )
+    def save_model(self, save_path: Path, save_flag: str):
+        save_path.mkdir(parents=True, exist_ok=True)
+        with gzip.open(save_path / f"{save_flag}_state_dict.pkl", "wb") as f:
+            torch.save(
+                {
+                    "place_actor_net": self.place_actor_net.state_dict(),
+                    "place_critic_net": self.place_critic_net.state_dict(),
+                    "orient_actor_net": self.orient_actor_net.state_dict(),
+                    "orient_critic_net": self.orient_critic_net.state_dict(),
+                },
+                f,
+            )
 
     def store_transition(self, transition):
         self.buffer.append(transition)
@@ -128,9 +134,7 @@ class OrientPPO:
                 else:
                     raise ValueError("orient, place train flag are False")
             print(f"update train flag, train_orient_agent={self.train_orient_agent}, train_place_agent={self.train_place_agent}")
-                
-
-
+            
     @trackit
     def update(self, data:dict=None) -> None:
 
@@ -211,7 +215,6 @@ class OrientPPO:
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
         self.place_critic_optimizer.step()
-
 
     def update_orient_agent(self, batch_state, batch_orient, batch_target, batch_old_orient_log_prob):
         canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)

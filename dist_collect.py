@@ -54,24 +54,20 @@ def collect():
     while True:
         t0 = time.time()
         model = next(iter(MODEL_INFO.take(1)))
-        logger.info(f"Read model from reverb server: {time.time() - t0:.2f}s")
-        t0 = time.time()
         model_data = model.data
         model_data = tf.nest.map_structure(tf_to_torch, model_data)
         model_id = model_data.pop('model_id').numpy().item()
-        logger.info(f"{model_id=}")
         orient_actor = model_data['orient_actor']
         agent.orient_actor_net.load_state_dict(orient_actor)
         place_actor = model_data['place_actor']
         agent.place_actor_net.load_state_dict(place_actor)
-        logger.info(f"Load model state dict: {time.time() - t0:.2f}s")
+        t1 = time.time()
 
         with reverb.Client(REVERB_ADDR).trajectory_writer(num_keep_alive_refs=200) as writer:
             state = env.reset()
             done = False
             total_reward = 0
             trajectory = []
-            t0 = time.time()
             while not done:
                 orient, action, orient_log_prob, action_log_prob = agent.select_action(state)
                 next_state, reward, done, info = env.step(action, orient)
@@ -88,17 +84,13 @@ def collect():
                     'model_id': model_id,
                 })
                 state = next_state
+            t2 = time.time()
 
             cum_reward = 0
             for step_log in reversed(trajectory):
                 reward = step_log['reward']
                 cum_reward = reward + args.gamma * cum_reward
                 step_log['return'] = cum_reward
-
-            logger.info(f"game time: {time.time() - t0:.2f}s")
-            logger.info(f"{total_reward=}")
-
-            t0 = time.time()
             for step_log in trajectory:
                 writer.append(step_log)
             writer.create_item('experience', model_id, 
@@ -115,7 +107,8 @@ def collect():
                                 'model_id': writer.history['model_id'][-1]
                             })
             writer.flush()
-            logger.info(f"Push trajectory {time.time() - t0:.2f}s")
+            t3 = time.time()
+            logger.info(f"{model_id=}, {total_reward=:.3e}, total={t3-t0:.3f}, read_model={t1-t0:.3f}, gen_sample={t2-t1:.3f}, push_sample={t3-t2:.3f}")
 
 
 if __name__ == "__main__":
