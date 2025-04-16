@@ -161,9 +161,8 @@ class OrientPPO:
             old_orient_log_prob = torch.tensor(data['o_log_prob'], dtype=torch.float).to(self.device)
 
         for _ in range(self.ppo_epoch):  # iteration ppo_epoch
-            for index in BatchSampler(SubsetRandomSampler(range(self.buffer_capacity)), self.batch_size, True):
+            for index in BatchSampler(SubsetRandomSampler(range(target_v.shape[0])), self.batch_size, True):
                 self.training_step += 1
-
                 batch_state = state[index].to(self.device)
                 batch_orient = orient[index].to(self.device)
                 batch_action = action[index].to(self.device)
