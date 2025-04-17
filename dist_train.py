@@ -59,7 +59,7 @@ REVERB_ADDR = f"{args.reverb_ip}:{args.reverb_port}"
 dataset = reverb.TrajectoryDataset.from_table_signature(
     server_address=REVERB_ADDR,
     table='experience',
-    max_in_flight_samples_per_worker=2 * args.reverb_batch,
+    max_in_flight_samples_per_worker=args.reverb_batch,
 ).batch(args.reverb_batch)
 
 batch_reader = PlaceTrajectoryDataset(dataset, batch_size=args.reverb_batch)
