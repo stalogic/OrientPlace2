@@ -18,6 +18,6 @@ args = parser.parse_args()
 
 for i in range(args.jobs):
     command = f"python dist_collect.py --design_name {args.design_name} --reverb_ip {args.reverb_ip} --cuda {i % args.gpus} > collect_{args.design_name}_{i}.log 2>&1 &"
-    if args.ignore_port:
+    if args.noport:
         command = "PLACEENV_IGNORE_PORT=1 " + command
     os.system(command)
