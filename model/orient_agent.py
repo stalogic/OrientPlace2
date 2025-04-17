@@ -46,6 +46,10 @@ class OrientPPO:
         self.place_critic_optimizer = optim.Adam(self.place_critic_net.parameters(), lr)
         self.orient_actor_optimizer = optim.Adam(self.orient_actor_net.parameters(), lr)
         self.orient_critic_optimizer = optim.Adam(self.orient_critic_net.parameters(), lr)
+        self.place_actor_scheduler = optim.lr_scheduler.StepLR(self.place_actor_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
+        self.place_critic_scheduler = optim.lr_scheduler.StepLR(self.place_critic_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
+        self.orient_actor_scheduler = optim.lr_scheduler.StepLR(self.orient_actor_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
+        self.orient_critic_scheduler = optim.lr_scheduler.StepLR(self.orient_critic_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
 
         self.placer_ok = False
         self.train_orient_agent = False
@@ -209,12 +213,14 @@ class OrientPPO:
         action_loss.backward()
         nn.utils.clip_grad_norm_(self.place_actor_net.parameters(), self.max_grad_norm)
         self.place_actor_optimizer.step()
+        self.place_actor_scheduler.step()
 
         value_loss = F.smooth_l1_loss(self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0]), batch_target)
         self.place_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
         self.place_critic_optimizer.step()
+        self.place_critic_scheduler.step()
 
     def update_orient_agent(self, batch_state, batch_orient, batch_target, batch_old_orient_log_prob):
         canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)
@@ -240,10 +246,12 @@ class OrientPPO:
         orient_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_actor_net.parameters(), self.max_grad_norm)
         self.orient_actor_optimizer.step()
+        self.orient_actor_scheduler.step()
 
         value_loss = F.smooth_l1_loss(self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3]), batch_target)
         self.orient_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_critic_net.parameters(), self.max_grad_norm)
         self.orient_critic_optimizer.step()
+        self.orient_critic_scheduler.step()
 
