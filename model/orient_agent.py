@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from loguru import logger
 from pathlib import Path
 from torch.distributions import Categorical
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
@@ -208,6 +209,7 @@ class OrientPPO:
         L1 = ratio * advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage.squeeze()
         action_loss = -torch.min(L1, L2).mean()  # MAX->MIN desent
+        logger.info(f"action policy loss: {action_loss.cpu().numpy().item()}")
 
         self.place_actor_optimizer.zero_grad()
         action_loss.backward()
@@ -216,6 +218,7 @@ class OrientPPO:
         self.place_actor_scheduler.step()
 
         value_loss = F.smooth_l1_loss(self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0]), batch_target)
+        logger.info(f"action value loss: {value_loss.cpu().numpy().item()}")
         self.place_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
@@ -241,6 +244,7 @@ class OrientPPO:
         L1 = ratio * advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage.squeeze()
         orient_loss = -torch.min(L1, L2).mean()
+        logger.info(f"orient value loss: {orient_loss.cpu().numpy().item()}")
 
         self.orient_actor_optimizer.zero_grad()
         orient_loss.backward()
@@ -249,6 +253,7 @@ class OrientPPO:
         self.orient_actor_scheduler.step()
 
         value_loss = F.smooth_l1_loss(self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3]), batch_target)
+        logger.info(f"orient value loss: {value_loss.cpu().numpy().item()}")
         self.orient_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_critic_net.parameters(), self.max_grad_norm)
