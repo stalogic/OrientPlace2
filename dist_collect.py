@@ -63,7 +63,7 @@ def collect():
                 lambda x: np.sum(np.abs(x.numpy())), 
                 tf.nest.flatten(value))
             )
-        logger.info(f"model_id: {model_id}, params_hexdist: {params_hexdist}")
+        logger.info(f"model_id: {params_hexdist['model_id']}, params_hexdist: {params_hexdist}")
 
         model_data = tf.nest.map_structure(tf_to_torch, model_data)
         model_id = model_data.pop('model_id').numpy().item()
