@@ -169,7 +169,8 @@ class OrientPPO:
             old_action_log_prob = torch.tensor(data['a_log_prob'], dtype=torch.float).to(self.device)
             old_orient_log_prob = torch.tensor(data['o_log_prob'], dtype=torch.float).to(self.device)
 
-        for _ in range(self.ppo_epoch):  # iteration ppo_epoch
+        for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
+            logger.info(f"epoch {epoch} / {self.ppo_epoch}")
             for index in BatchSampler(SubsetRandomSampler(range(target_v.shape[0])), self.batch_size, True):
                 self.training_step += 1
                 batch_state = state[index].to(self.device)
@@ -209,21 +210,24 @@ class OrientPPO:
         L1 = ratio * advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage.squeeze()
         action_loss = -torch.min(L1, L2).mean()  # MAX->MIN desent
-        logger.info(f"action policy loss: {action_loss.cpu().detach().numpy().item()}")
+        mask = 1 - self.clip_param < ratio < 1 + self.clip_param
+        safe_rate = torch.sum(mask.int()).item() / mask.numel()
+        logger.info(f"action safe rate: {safe_rate*100:.2f}%")
+        # logger.info(f"action policy loss: {action_loss.cpu().detach().numpy().item()}")
 
         self.place_actor_optimizer.zero_grad()
         action_loss.backward()
         nn.utils.clip_grad_norm_(self.place_actor_net.parameters(), self.max_grad_norm)
         self.place_actor_optimizer.step()
-        self.place_actor_scheduler.step()
+        # self.place_actor_scheduler.step()
 
         value_loss = F.smooth_l1_loss(self.place_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3], batch_orient[:, 0]), batch_target)
-        logger.info(f"action value loss: {value_loss.cpu().detach().numpy().item()}")
+        # logger.info(f"action value loss: {value_loss.cpu().detach().numpy().item()}")
         self.place_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
         self.place_critic_optimizer.step()
-        self.place_critic_scheduler.step()
+        # self.place_critic_scheduler.step()
 
     def update_orient_agent(self, batch_state, batch_orient, batch_target, batch_old_orient_log_prob):
         canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)
@@ -250,7 +254,7 @@ class OrientPPO:
         orient_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_actor_net.parameters(), self.max_grad_norm)
         self.orient_actor_optimizer.step()
-        self.orient_actor_scheduler.step()
+        # self.orient_actor_scheduler.step()
 
         value_loss = F.smooth_l1_loss(self.orient_critic_net(canvas, wire_img, pos_mask, batch_state[:, -3]), batch_target)
         logger.info(f"orient value loss: {value_loss.cpu().detach().numpy().item()}")
@@ -258,5 +262,5 @@ class OrientPPO:
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_critic_net.parameters(), self.max_grad_norm)
         self.orient_critic_optimizer.step()
-        self.orient_critic_scheduler.step()
+        # self.orient_critic_scheduler.step()
 

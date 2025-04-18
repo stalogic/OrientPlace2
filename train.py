@@ -171,7 +171,7 @@ def main():
                 strftime_now = time.strftime("%Y%m%d-%H-%M-%S", time.localtime())
                 save_flag = f"{strftime_now}_I[{i_epoch}]_S[{int(raw_score)}]_H[{hpwl:.3e}]_C[{cost:.3e}]"
 
-                agent.save_param(MODEL_PATH / save_flag)
+                agent.save_model(MODEL_PATH, save_flag)
                 fig_name = FIGURE_PATH / f"{save_flag}.png"
                 env.save_flyline(fig_name)
                 print(f"save_figure: {fig_name}")

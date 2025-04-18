@@ -55,6 +55,16 @@ def collect():
         t0 = time.time()
         model = next(iter(MODEL_INFO.take(1)))
         model_data = model.data
+
+        import numpy as np
+        params_hexdist = {}
+        for key, value in model_data.items():
+            params_hexdist[key] = sum(
+                tf.nest.map_structure(
+                    lambda x: np.sum(np.abs(x.numpy())), value).values()
+            )
+        logger.info(f"model_id: {model_id}, params_hexdist: {params_hexdist}")
+
         model_data = tf.nest.map_structure(tf_to_torch, model_data)
         model_id = model_data.pop('model_id').numpy().item()
         orient_actor = model_data['orient_actor']
