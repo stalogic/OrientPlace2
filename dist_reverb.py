@@ -35,15 +35,17 @@ agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
 agent.FEATURE_SLICE = env.FEATURE_SLICE
 
-variables = {
+model_variables = {
     'orient_actor': agent.orient_actor_net.state_dict(),
+    'orient_critic': agent.orient_critic_net.state_dict(),
     'place_actor': agent.place_actor_net.state_dict(),
+    'place_critic': agent.place_critic_net.state_dict(),
     'model_id': torch.tensor(0, dtype=torch.int64)
 }
 
 model_signature = tf.nest.map_structure(
     lambda var: tf.TensorSpec(var.shape, to_tf_dtype(var.dtype)),
-    variables
+    model_variables
 )
 
 model_table = reverb.Table(
@@ -60,12 +62,16 @@ data_signature = {
     'state': tf.TensorSpec(shape=[None, 852995], dtype=tf.float64),
     'orient': tf.TensorSpec(shape=[None], dtype=tf.int64),
     'action': tf.TensorSpec(shape=[None], dtype=tf.int64),
-    'o_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'a_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'reward': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'next_state': tf.TensorSpec(shape=[None, 852995], dtype=tf.float64),
     'done': tf.TensorSpec(shape=[None], dtype=tf.bool),
+    'o_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
+    'a_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
+    'o_value': tf.TensorSpec(shape=[None], dtype=tf.float64),
+    'a_value': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'return': tf.TensorSpec(shape=[None], dtype=tf.float64),
+    'o_advantage': tf.TensorSpec(shape=[None], dtype=tf.float64),
+    'a_advantage': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'model_id': tf.TensorSpec(shape=[], dtype=tf.int64),
 }
 

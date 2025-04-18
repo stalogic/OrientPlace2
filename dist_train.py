@@ -70,16 +70,18 @@ def train():
     for model_id in range(args.model_iterations):
         t0 = time.time()
         agent.save_model(RESULT_ROOT / "checkpoints", f"M{model_id}")
-        variables = {
+        model_variables = {
             'orient_actor': agent.orient_actor_net.state_dict(),
+            'orient_critic': agent.orient_critic_net.state_dict(),
             'place_actor': agent.place_actor_net.state_dict(),
+            'place_critic': agent.place_critic_net.state_dict(),
             'model_id': torch.tensor(model_id, dtype=torch.int64)
         }
-        variables = tf.nest.map_structure(torch_to_tf, variables)
-        client.insert([variables], priorities={'model_info': model_id})
+        model_variables = tf.nest.map_structure(torch_to_tf, model_variables)
+        client.insert([model_variables], priorities={'model_info': model_id})
 
         params_hexdist = {}
-        for key, value in variables.items():
+        for key, value in model_variables.items():
             params_hexdist[key] = sum(tf.nest.map_structure(
                 lambda x: np.sum(np.abs(x.numpy())), 
                 tf.nest.flatten(value))

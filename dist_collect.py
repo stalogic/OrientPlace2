@@ -54,23 +54,23 @@ def collect():
     while True:
         t0 = time.time()
         model = next(iter(MODEL_INFO.take(1)))
-        model_data = model.data
+        model_variables = model.data
 
         import numpy as np
         params_hexdist = {}
-        for key, value in model_data.items():
+        for key, value in model_variables.items():
             params_hexdist[key] = sum(tf.nest.map_structure(
                 lambda x: np.sum(np.abs(x.numpy())), 
                 tf.nest.flatten(value))
             )
         logger.info(f"model_id: {params_hexdist['model_id']}, params_hexdist: {params_hexdist}")
 
-        model_data = tf.nest.map_structure(tf_to_torch, model_data)
-        model_id = model_data.pop('model_id').numpy().item()
-        orient_actor = model_data['orient_actor']
-        agent.orient_actor_net.load_state_dict(orient_actor)
-        place_actor = model_data['place_actor']
-        agent.place_actor_net.load_state_dict(place_actor)
+        model_variables = tf.nest.map_structure(tf_to_torch, model_variables)
+        model_id = model_variables.pop('model_id').numpy().item()
+        agent.orient_actor_net.load_state_dict(model_variables['orient_actor'])
+        agent.orient_critic_net.load_state_dict(model_variables['orient_critic'])
+        agent.place_actor_net.load_state_dict(model_variables['place_actor'])
+        agent.place_critic_net.load_state_dict(model_variables['place_critic'])
         t1 = time.time()
 
         with reverb.Client(REVERB_ADDR).trajectory_writer(num_keep_alive_refs=200) as writer:
@@ -79,18 +79,22 @@ def collect():
             total_reward = 0
             trajectory = []
             while not done:
-                orient, action, orient_log_prob, action_log_prob = agent.select_action(state)
-                next_state, reward, done, info = env.step(action, orient)
+                orient_info, action_info = agent.select_action(state)
+                orient, orient_log_prob, orient_value = orient_info
+                action, action_log_prob, action_value = action_info
+                next_state, reward, done, _ = env.step(action, orient)
                 total_reward += reward
                 trajectory.append({
                     'state': state,
                     'orient': orient,
                     'action': action,
-                    'o_log_prob': orient_log_prob,
-                    'a_log_prob': action_log_prob,
                     'reward': float(reward)/2000,
                     'next_state': next_state,
                     'done': done,
+                    'o_log_prob': orient_log_prob,
+                    'a_log_prob': action_log_prob,
+                    'o_value': orient_value,
+                    'a_value': action_value,
                     'model_id': model_id,
                 })
                 state = next_state
@@ -101,6 +105,8 @@ def collect():
                 reward = step_log['reward']
                 cum_reward = reward + args.gamma * cum_reward
                 step_log['return'] = cum_reward
+                step_log['o_advantage'] = cum_reward - step_log['o_value']
+                step_log['a_advantage'] = cum_reward - step_log['a_value']
             for step_log in trajectory:
                 writer.append(step_log)
             writer.create_item('experience', model_id, 
@@ -108,12 +114,16 @@ def collect():
                                 'state': writer.history['state'][:],
                                 'orient': writer.history['orient'][:],
                                 'action': writer.history['action'][:],
-                                'o_log_prob': writer.history['o_log_prob'][:],
-                                'a_log_prob': writer.history['a_log_prob'][:],
                                 'reward': writer.history['reward'][:],
                                 'next_state': writer.history['next_state'][:],
                                 'done': writer.history['done'][:],
+                                'o_log_prob': writer.history['o_log_prob'][:],
+                                'a_log_prob': writer.history['a_log_prob'][:],
+                                'o_value': writer.history['o_value'][:],
+                                'a_value': writer.history['a_value'][:],
                                 'return': writer.history['return'][:],
+                                'o_advantage': writer.history['o_advantage'][:],
+                                'a_advantage': writer.history['a_advantage'][:],
                                 'model_id': writer.history['model_id'][-1]
                             })
             writer.flush()
