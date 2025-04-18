@@ -210,9 +210,9 @@ class OrientPPO:
         L1 = ratio * advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * advantage.squeeze()
         action_loss = -torch.min(L1, L2).mean()  # MAX->MIN desent
-        mask = 1 - self.clip_param < ratio < 1 + self.clip_param
-        safe_rate = torch.sum(mask.int()).item() / mask.numel()
-        logger.info(f"action safe rate: {safe_rate*100:.2f}%")
+        mask = torch.logical_and(torch.gt(ratio, 1 - self.clip_param), torch.lt(ratio, 1 + self.clip_param)).float()
+        safe_rate = torch.sum(mask).item() / mask.numel()
+        logger.info(f"action safe rate: {safe_rate*100:.2f}%, advantage: {advantage.abs().mean().item():.2f}")
         # logger.info(f"action policy loss: {action_loss.cpu().detach().numpy().item()}")
 
         self.place_actor_optimizer.zero_grad()
