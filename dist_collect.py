@@ -59,9 +59,9 @@ def collect():
         import numpy as np
         params_hexdist = {}
         for key, value in model_data.items():
-            params_hexdist[key] = sum(
-                tf.nest.map_structure(
-                    lambda x: np.sum(np.abs(x.numpy())), value).values()
+            params_hexdist[key] = sum(tf.nest.map_structure(
+                lambda x: np.sum(np.abs(x.numpy())), 
+                tf.nest.flatten(value))
             )
         logger.info(f"model_id: {model_id}, params_hexdist: {params_hexdist}")
 
