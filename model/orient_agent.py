@@ -121,7 +121,7 @@ class OrientPPO:
             orient_info = orient.item(), orient_prob.item(), orient_value.item()
             action_info = action.item(), action_log_prob.item(), action_value.item()
             # 添加[0]来移除batch维度
-            state_imgs = macro_id.item(), canvas[0].cpu().numpy(), wire_img_8oc[0].cpu().numpy(), pos_mask_8oc[0].cpu().numpy(), wire_img_1oc[0].cpu().numpy(), pos_mask_1oc[0].cpu().numpy()
+            state_imgs = macro_id.long().item(), canvas[0].cpu().numpy(), wire_img_8oc[0].cpu().numpy(), pos_mask_8oc[0].cpu().numpy(), wire_img_1oc[0].cpu().numpy(), pos_mask_1oc[0].cpu().numpy()
 
         return orient_info, action_info, state_imgs
     
