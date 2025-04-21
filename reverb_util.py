@@ -73,11 +73,11 @@ class PlaceTrajectoryDataset:
                     batch = tf.nest.map_structure(lambda x: x.numpy(), batch)
                 t2 = time.time()
 
-                for i in range(len(batch['state'])):
+                for i in range(len(batch['action'])):
                     for key, value in batch.items():
                         batches[key].append(value[i])
 
-                    if len(batches['state']) >= self.batch_size:
+                    if len(batches['action']) >= self.batch_size:
                         t3 = time.time()
                         result = {}
                         for key, value in batches.items():
