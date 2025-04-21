@@ -93,8 +93,8 @@ class OrientPPO:
 
         state = torch.from_numpy(state).float().to(self.device).unsqueeze(0)
         canvas = state[:, self.CANVAS_SLICE].reshape(-1, 1, self.grid, self.grid)
-        wire_img = state[:, self.WIRE_SLICE].reshape(-1, 8, self.grid, self.grid)
-        pos_mask = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
+        wire_img_8oc = state[:, self.WIRE_SLICE].reshape(-1, 8, self.grid, self.grid)
+        pos_mask_8oc = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
         macro_id = state[:, -3]
 
         with torch.no_grad():
@@ -103,22 +103,26 @@ class OrientPPO:
             self.place_actor_net.eval()
             self.place_critic_net.eval()
 
-            orient_probs = self.orient_actor_net(canvas, wire_img, pos_mask)
-            orient_value = self.orient_critic_net(canvas, wire_img, pos_mask, macro_id)
+            orient_probs = self.orient_actor_net(canvas, wire_img_8oc, pos_mask_8oc)
             orient_dist = Categorical(orient_probs)
             orient = orient_dist.sample()
             orient_prob = orient_dist.log_prob(orient)
+            orient_value = self.orient_critic_net(canvas, wire_img_8oc, pos_mask_8oc, macro_id)
 
-            wire_img = wire_img[:, orient.item(), :, :].reshape(-1, 1, self.grid, self.grid)
-            pos_mask = pos_mask[:, orient.item(), :, :].reshape(-1, 1, self.grid, self.grid)
+            wire_img_1oc = wire_img_8oc[:, orient.item(), :, :].reshape(-1, 1, self.grid, self.grid)
+            pos_mask_1oc = pos_mask_8oc[:, orient.item(), :, :].reshape(-1, 1, self.grid, self.grid)
 
-            action_probs = self.place_actor_net(canvas, wire_img, pos_mask)
-            action_value = self.place_critic_net(canvas, wire_img, pos_mask, macro_id, orient)
+            action_probs = self.place_actor_net(canvas, wire_img_1oc, pos_mask_1oc)
             action_dist = Categorical(action_probs)
             action = action_dist.sample()
             action_log_prob = action_dist.log_prob(action)
+            action_value = self.place_critic_net(canvas, wire_img_1oc, pos_mask_1oc, macro_id, orient)
 
-        return (orient.item(), orient_prob.item(), orient_value.item()), (action.item(), action_log_prob.item(), action_value.item())
+            orient_info = orient.item(), orient_prob.item(), orient_value.item()
+            action_info = action.item(), action_log_prob.item(), action_value.item()
+            state_imgs = macro_id.item(), canvas.cpu().numpy(), wire_img_8oc.cpu().numpy(), pos_mask_8oc.cpu().numpy(), wire_img_1oc.cpu().numpy(), pos_mask_1oc.cpu().numpy()
+
+        return orient_info, action_info, state_imgs
     
     def _update_train_flag(self):
         if self.placer_ok:
@@ -165,9 +169,15 @@ class OrientPPO:
             self.buffer.clear()
         else:
             # 分布式训练，数据来自reverb
-            state = torch.tensor(data['state'], dtype=torch.float).to(self.device)
-            orient = torch.tensor(data['orient'], dtype=torch.float).to(self.device)
-            action = torch.tensor(data['action'], dtype=torch.float).to(self.device)
+            macro_id = torch.tensor(data['macro_id'], dtype=torch.int64).to(self.device)
+            canvas = torch.tensor(data['canvas'], dtype=torch.float).to(self.device)
+            wire_img_8oc = torch.tensor(data['wire_img_8oc'], dtype=torch.float).to(self.device)
+            pos_mask_8oc = torch.tensor(data['pos_mask_8oc'], dtype=torch.float).to(self.device)
+            wire_img_1oc = torch.tensor(data['wire_img_1oc'], dtype=torch.float).to(self.device)
+            pos_mask_1oc = torch.tensor(data['pos_mask_1oc'], dtype=torch.float).to(self.device)
+
+            orient = torch.tensor(data['orient'], dtype=torch.int64).to(self.device)
+            action = torch.tensor(data['action'], dtype=torch.int64).to(self.device)
             old_action_log_prob = torch.tensor(data['a_log_prob'], dtype=torch.float).to(self.device)
             old_orient_log_prob = torch.tensor(data['o_log_prob'], dtype=torch.float).to(self.device)
             orient_advantage = torch.tensor(data['o_advantage'], dtype=torch.float).to(self.device)
@@ -178,7 +188,23 @@ class OrientPPO:
             logger.info(f"epoch {epoch+1} / {self.ppo_epoch}")
             for index in BatchSampler(SubsetRandomSampler(range(state.shape[0])), self.batch_size, True):
                 self.training_step += 1
-                batch_state = state[index].to(self.device)
+
+                batch_macro_id = macro_id[index].to(self.device)
+                batch_canvas = canvas[index].to(self.device)
+                batch_wire_img_8oc = wire_img_8oc[index].to(self.device)
+                batch_pos_mask_8oc = pos_mask_8oc[index].to(self.device)
+                batch_wire_img_1oc = wire_img_1oc[index].to(self.device)
+                batch_pos_mask_1oc = pos_mask_1oc[index].to(self.device)
+
+                state_dict = {
+                    'macro_id': batch_macro_id,
+                    'canvas': batch_canvas,
+                    'wire_img_8oc': batch_wire_img_8oc,
+                    'pos_mask_8oc': batch_pos_mask_8oc,
+                    'wire_img_1oc': batch_wire_img_1oc,
+                    'pos_mask_1oc': batch_pos_mask_1oc,
+                }
+
                 batch_orient = orient[index].to(self.device)
                 batch_action = action[index].to(self.device)
                 batch_old_orient_log_prob = old_orient_log_prob[index].to(self.device)
@@ -188,22 +214,19 @@ class OrientPPO:
                 batch_target_value = target_value[index].to(self.device)
 
                 if self.train_orient_agent:
-                    self.update_orient_agent(batch_state, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob)
+                    self.update_orient_agent(state_dict, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob)
                 if self.train_place_agent:
-                    self.update_place_agent(batch_state, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob)
+                    self.update_place_agent(state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob)
 
         self._update_train_flag()
 
-    def update_place_agent(self, batch_state, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob):
-        canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)
-        wire_img = batch_state[:, self.WIRE_SLICE].reshape(self.batch_size * 8, self.grid, self.grid)
-        pos_mask = batch_state[:, self.POS_SLICE].reshape(self.batch_size * 8, self.grid, self.grid)
-        orient_index = batch_orient.squeeze().long().cpu().tolist()
-        orient_index = [batch_id * 8 + offset for batch_id, offset in enumerate(orient_index)]
-        wire_img = wire_img[orient_index].reshape(self.batch_size, 1, self.grid, self.grid)
-        pos_mask = pos_mask[orient_index].reshape(self.batch_size, 1, self.grid, self.grid)
-        macro_id = batch_state[:, -3]
-        orient = batch_orient[:, 0]
+    def update_place_agent(self, state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob):
+        
+        canvas = state_dict['canvas']
+        wire_img = state_dict['wire_img_1oc']
+        pos_mask = state_dict['pos_mask_1oc']
+        macro_id = state_dict['macro_id'].squeeze()
+        orient = batch_orient.squeeze()
 
         self.place_actor_net.train()
         self.place_critic_net.train()
@@ -214,10 +237,12 @@ class OrientPPO:
         ratio = torch.exp(action_log_prob - batch_old_action_log_prob).squeeze()
 
         clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
-        logger.info(f"action clip rate: {clip_rate*100:.2f}%, advantage: {batch_action_advantage.abs().mean().item():.2f}")
+        safe_rate = torch.logical_and(torch.gt(ratio, 1-self.clip_param), torch.lt(ratio, 1+self.clip_param)).float().mean()
+        normalize_advantage = (batch_action_advantage - batch_action_advantage.mean()) / (batch_action_advantage.std() + 1e-8)
+        logger.info(f"action clip rate: {clip_rate*100:.2f}%, safe rate: {safe_rate*100:.2f}%, max: {ratio.max()}, min: {ratio.min()}, mean: {ratio.mean()}, std: {ratio.std()}, advantage: {batch_action_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
 
-        L1 = ratio * batch_action_advantage.squeeze()
-        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * batch_action_advantage.squeeze()
+        L1 = ratio * normalize_advantage.squeeze()
+        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage.squeeze()
         action_loss = -torch.min(L1, L2).mean()  # MAX->MIN desent
         # logger.info(f"action policy loss: {action_loss.cpu().detach().numpy().item()}")
 
@@ -251,10 +276,11 @@ class OrientPPO:
         ratio = torch.exp(orient_log_prob - batch_old_orient_log_prob).squeeze()
 
         clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
-        logger.info(f"orient clip rate: {clip_rate*100:.2f}%, advantage: {batch_orient_advantage.abs().mean().item():.2f}")
+        normalize_advantage = (batch_orient_advantage - batch_orient_advantage.mean()) / (batch_orient_advantage.std() + 1e-8)
+        logger.info(f"orient clip rate: {clip_rate*100:.2f}%, advantage: {batch_orient_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
 
-        L1 = ratio * batch_orient_advantage.squeeze()
-        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * batch_orient_advantage.squeeze()
+        L1 = ratio * normalize_advantage.squeeze()
+        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage.squeeze()
         orient_loss = -torch.min(L1, L2).mean()
         logger.info(f"orient value loss: {orient_loss.cpu().detach().numpy().item()}")
 

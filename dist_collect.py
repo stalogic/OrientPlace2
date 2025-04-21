@@ -79,23 +79,30 @@ def collect():
             total_reward = 0
             trajectory = []
             while not done:
-                orient_info, action_info = agent.select_action(state)
+                orient_info, action_info, state_imgs = agent.select_action(state)
                 orient, orient_log_prob, orient_value = orient_info
                 action, action_log_prob, action_value = action_info
+                macro_id, canvas, wire_img_8oc, pos_mask_8oc, wire_img_1oc, pos_mask_1oc = state_imgs
                 next_state, reward, done, _ = env.step(action, orient)
                 total_reward += reward
                 trajectory.append({
-                    'state': state,
+                    'macro_id': macro_id,
+                    'canvas': canvas,
+                    'wire_img_8oc': wire_img_8oc,
+                    'pos_mask_8oc': pos_mask_8oc,
+                    'wire_img_1oc': wire_img_1oc,
+                    'pos_mask_1oc': pos_mask_1oc,
+
                     'orient': orient,
                     'action': action,
                     'reward': float(reward)/2000,
-                    'next_state': next_state,
-                    'done': done,
                     'o_log_prob': orient_log_prob,
                     'a_log_prob': action_log_prob,
                     'o_value': orient_value,
                     'a_value': action_value,
                     'model_id': model_id,
+                    
+
                 })
                 state = next_state
             t2 = time.time()
@@ -111,12 +118,16 @@ def collect():
                 writer.append(step_log)
             writer.create_item('experience', model_id, 
                             trajectory= {
-                                'state': writer.history['state'][:],
+                                'macro_id': writer.history['macro_id'][:],
+                                'canvas': writer.history['canvas'][:],
+                                'wire_img_8oc': writer.history['wire_img_8oc'][:],
+                                'pos_mask_8oc': writer.history['pos_mask_8oc'][:],
+                                'wire_img_1oc': writer.history['wire_img_1oc'][:],
+                                'pos_mask_1oc': writer.history['pos_mask_1oc'][:],
+
                                 'orient': writer.history['orient'][:],
                                 'action': writer.history['action'][:],
                                 'reward': writer.history['reward'][:],
-                                'next_state': writer.history['next_state'][:],
-                                'done': writer.history['done'][:],
                                 'o_log_prob': writer.history['o_log_prob'][:],
                                 'a_log_prob': writer.history['a_log_prob'][:],
                                 'o_value': writer.history['o_value'][:],

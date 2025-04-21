@@ -59,12 +59,16 @@ model_table = reverb.Table(
 )
 
 data_signature = {
-    'state': tf.TensorSpec(shape=[None, 852995], dtype=tf.float64),
+    'macro_id': tf.TensorSpec(shape=[None], dtype=tf.int64),
+    'canvas': tf.TensorSpec(shape=[None, 1, 224, 224], dtype=tf.float64),
+    'wire_img_8oc': tf.TensorSpec(shape=[None, 8, 224, 224], dtype=tf.float64),
+    'pos_mask_8oc': tf.TensorSpec(shape=[None, 8, 224, 224], dtype=tf.float64),
+    'wire_img_1oc': tf.TensorSpec(shape=[None, 1, 224, 224], dtype=tf.float64),
+    'pos_mask_1oc': tf.TensorSpec(shape=[None, 1, 224, 224], dtype=tf.float64),
+
     'orient': tf.TensorSpec(shape=[None], dtype=tf.int64),
     'action': tf.TensorSpec(shape=[None], dtype=tf.int64),
     'reward': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'next_state': tf.TensorSpec(shape=[None, 852995], dtype=tf.float64),
-    'done': tf.TensorSpec(shape=[None], dtype=tf.bool),
     'o_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'a_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
     'o_value': tf.TensorSpec(shape=[None], dtype=tf.float64),
