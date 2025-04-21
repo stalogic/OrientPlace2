@@ -87,6 +87,17 @@ class OrientPPO:
         self.buffer.append(transition)
         self.counter += 1
         return self.counter % self.buffer_capacity == 0
+    
+    def debug_print(self):
+        macro_id = torch.from_numpy(np.array([1])).long().to(self.device)
+        canvas = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32))
+        wire_img_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32))
+        pos_mask_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32))
+        action_probs = self.place_actor_net(canvas, wire_img_1oc, pos_mask_1oc)
+        action_value = self.place_critic_net(canvas, wire_img_1oc, pos_mask_1oc, macro_id)
+
+        probs_sum = action_probs.squeeze().sum(dim=-1).item()
+        logger.debug(f"probs_sum: {probs_sum}, action_value: {action_value.squeeze().item()}, {action_probs[0,:10]=}")
 
     @trackit
     def select_action(self, state) -> tuple[int, int, float, float]:
@@ -102,6 +113,7 @@ class OrientPPO:
             # self.orient_critic_net.eval()
             # self.place_actor_net.eval()
             # self.place_critic_net.eval()
+            self.debug_print()
 
             orient_probs = self.orient_actor_net(canvas, wire_img_8oc, pos_mask_8oc)
             orient_dist = Categorical(orient_probs)
@@ -184,6 +196,8 @@ class OrientPPO:
             orient_advantage = torch.tensor(data['o_advantage'], dtype=torch.float).to(self.device)
             action_advantage = torch.tensor(data['a_advantage'], dtype=torch.float).to(self.device)
             target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
+
+        self.debug_print()
 
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
             logger.info(f"epoch {epoch+1} / {self.ppo_epoch}")
