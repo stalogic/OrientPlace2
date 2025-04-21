@@ -98,10 +98,10 @@ class OrientPPO:
         macro_id = state[:, -3]
 
         with torch.no_grad():
-            self.orient_actor_net.eval()
-            self.orient_critic_net.eval()
-            self.place_actor_net.eval()
-            self.place_critic_net.eval()
+            # self.orient_actor_net.eval()
+            # self.orient_critic_net.eval()
+            # self.place_actor_net.eval()
+            # self.place_critic_net.eval()
 
             orient_probs = self.orient_actor_net(canvas, wire_img_8oc, pos_mask_8oc)
             orient_dist = Categorical(orient_probs)
@@ -187,7 +187,7 @@ class OrientPPO:
 
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
             logger.info(f"epoch {epoch+1} / {self.ppo_epoch}")
-            for index in BatchSampler(SubsetRandomSampler(range(state.shape[0])), self.batch_size, True):
+            for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
                 self.training_step += 1
 
                 batch_macro_id = macro_id[index].to(self.device)

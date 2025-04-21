@@ -84,8 +84,8 @@ class PlaceTrajectoryDataset:
                             array = np.concatenate(value, axis=0)
                             if len(array.shape) == 1:
                                 array = np.expand_dims(array, axis=1)
-                            elif len(array.shape) > 2:
-                                raise ValueError(f"Invalid shape: {array.shape} for `{key}`")
+                            # elif len(array.shape) > 2:
+                            #     raise ValueError(f"Invalid shape: {array.shape} for `{key}`")
                             result[key] = array
 
                         if discarded > 0:
