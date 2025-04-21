@@ -90,11 +90,11 @@ class OrientPPO:
     
     def debug_print(self):
         macro_id = torch.from_numpy(np.array([1])).long().to(self.device)
-        canvas = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32))
-        wire_img_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32))
-        pos_mask_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32))
-        action_probs = self.place_actor_net(canvas, wire_img_1oc, pos_mask_1oc)
-        action_value = self.place_critic_net(canvas, wire_img_1oc, pos_mask_1oc, macro_id)
+        canvas = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32)).to(self.device)
+        wire_img_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32)).to(self.device)
+        pos_mask_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32)).to(self.device)
+        action_probs = self.place_actor_net(canvas, wire_img_1oc, pos_mask_1oc).cpu()
+        action_value = self.place_critic_net(canvas, wire_img_1oc, pos_mask_1oc, macro_id).cpu()
 
         probs_sum = action_probs.squeeze().sum(dim=-1).item()
         logger.info(f"probs_sum: {probs_sum}, action_value: {action_value.squeeze().item()}, {action_probs[0,:10]=}")
