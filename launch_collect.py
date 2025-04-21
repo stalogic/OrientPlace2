@@ -1,4 +1,5 @@
 import os
+import time
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -21,3 +22,4 @@ for i in range(args.jobs):
     if args.noport:
         command = "PLACEENV_IGNORE_PORT=1 " + command
     os.system(command)
+    time.sleep(0.5)
