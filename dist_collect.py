@@ -54,7 +54,7 @@ MODEL_INFO = reverb.TimestepDataset.from_table_signature(
 )
 
 def collect():
-    f = open("debug_ifno.jsonl", "r")
+    f = open("debug_ifno.jsonl", "w")
     while True:
         t0 = time.time()
         model = next(iter(MODEL_INFO.take(1)))
@@ -110,7 +110,7 @@ def collect():
                 step_log['return'] = np.float32(cum_reward)
                 step_log['o_advantage'] = np.float32(cum_reward) - step_log['o_value']
                 step_log['a_advantage'] = np.float32(cum_reward) - step_log['a_value']
-                
+
             for step_log in trajectory:
                 json_data = {}
                 for k,v in step_log.items():
