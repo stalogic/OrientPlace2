@@ -59,6 +59,7 @@ model_table = reverb.Table(
 )
 
 data_signature = {
+    'trace_id': tf.TensorSpec(shape=[None], dtype=tf.string),
     'macro_id': tf.TensorSpec(shape=[None], dtype=tf.int64),
     'canvas': tf.TensorSpec(shape=[None, 1, 224, 224], dtype=tf.float32),
     'wire_img_8oc': tf.TensorSpec(shape=[None, 8, 224, 224], dtype=tf.float32),

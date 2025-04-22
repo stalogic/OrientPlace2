@@ -79,15 +79,6 @@ def train():
         }
         model_variables = tf.nest.map_structure(torch_to_tf, model_variables)
         client.insert([model_variables], priorities={'model_info': model_id})
-
-        params_hexdist = {}
-        for key, value in model_variables.items():
-            params_hexdist[key] = sum(tf.nest.map_structure(
-                lambda x: np.sum(np.abs(x.numpy())), 
-                tf.nest.flatten(value))
-            )
-        logger.info(f"model_id: {model_id}, params_hexdist: {params_hexdist}")
-
         save_time = time.time() - t0
 
         data_time, update_time = 0, 0

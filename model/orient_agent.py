@@ -183,6 +183,7 @@ class OrientPPO:
             self.buffer.clear()
         else:
             # 分布式训练，数据来自reverb
+            trace_id = data['trace_id']
             macro_id = torch.tensor(data['macro_id'], dtype=torch.int64).to(self.device)
             canvas = torch.tensor(data['canvas'], dtype=torch.float).to(self.device)
             wire_img_8oc = torch.tensor(data['wire_img_8oc'], dtype=torch.float).to(self.device)
@@ -198,27 +199,12 @@ class OrientPPO:
             action_advantage = torch.tensor(data['a_advantage'], dtype=torch.float).to(self.device)
             target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
 
-            logger.info(f"macro_id# max: {macro_id.max().item()}, min: {macro_id.min().item()}, mean: {macro_id.mean().item()}, std: {macro_id.std().item()}, shape: {macro_id.shape}")
-            logger.info(f"canvas# max: {canvas.max().item()}, min: {canvas.min().item()}, mean: {canvas.mean().item()}, std: {canvas.std().item()}, shape: {canvas.shape}")
-            logger.info(f"wire_img_8oc# max: {wire_img_8oc.max().item()}, min: {wire_img_8oc.min().item()}, mean: {wire_img_8oc.mean().item()}, std: {wire_img_8oc.std().item()}, shape: {wire_img_8oc.shape}")
-            logger.info(f"pos_mask_8oc# max: {pos_mask_8oc.max().item()}, min: {pos_mask_8oc.min().item()}, mean: {pos_mask_8oc.mean().item()}, std: {pos_mask_8oc.std().item()}, shape: {pos_mask_8oc.shape}")
-            logger.info(f"wire_img_1oc# max: {wire_img_1oc.max().item()}, min: {wire_img_1oc.min().item()}, mean: {wire_img_1oc.mean().item()}, std: {wire_img_1oc.std().item()}, shape: {wire_img_1oc.shape}")
-            logger.info(f"pos_mask_1oc# max: {pos_mask_1oc.max().item()}, min: {pos_mask_1oc.min().item()}, mean: {pos_mask_1oc.mean().item()}, std: {pos_mask_1oc.std().item()}, shape: {pos_mask_1oc.shape}")
-            logger.info(f"orient# max: {orient.max().item()}, min: {orient.min().item()}, mean: {orient.mean().item()}, std: {orient.std().item()}, shape: {orient.shape}")
-            logger.info(f"action# max: {action.max().item()}, min: {action.min().item()}, mean: {action.mean().item()}, std: {action.std().item()}, shape: {action.shape}")
-            logger.info(f"old_action_log_prob# max: {old_action_log_prob.max().item()}, min: {old_action_log_prob.min().item()}, mean: {old_action_log_prob.mean().item()}, std: {old_action_log_prob.std().item()}, shape: {old_action_log_prob.shape}")
-            logger.info(f"old_orient_log_prob# max: {old_orient_log_prob.max().item()}, min: {old_orient_log_prob.min().item()}, mean: {old_orient_log_prob.mean().item()}, std: {old_orient_log_prob.std().item()}, shape: {old_orient_log_prob.shape}")
-            logger.info(f"orient_advantage# max: {orient_advantage.max().item()}, min: {orient_advantage.min().item()}, mean: {orient_advantage.mean().item()}, std: {orient_advantage.std().item()}, shape: {orient_advantage.shape}")
-            logger.info(f"action_advantage# max: {action_advantage.max().item()}, min: {action_advantage.min().item()}, mean: {action_advantage.mean().item()}, std: {action_advantage.std().item()}, shape: {action_advantage.shape}")
-            logger.info(f"target_value# max: {target_value.max().item()}, min: {target_value.min().item()}, mean: {target_value.mean().item()}, std: {target_value.std().item()}, shape: {target_value.shape}")
-
-        # self.debug_print()
-
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
             logger.info(f"epoch {epoch+1} / {self.ppo_epoch}")
             for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
                 self.training_step += 1
 
+                batch_trace_id = trace_id[index]
                 batch_macro_id = macro_id[index].to(self.device)
                 batch_canvas = canvas[index].to(self.device)
                 batch_wire_img_8oc = wire_img_8oc[index].to(self.device)
@@ -227,6 +213,7 @@ class OrientPPO:
                 batch_pos_mask_1oc = pos_mask_1oc[index].to(self.device)
 
                 state_dict = {
+                    'trace_id': batch_trace_id,
                     'macro_id': batch_macro_id,
                     'canvas': batch_canvas,
                     'wire_img_8oc': batch_wire_img_8oc,
@@ -252,6 +239,7 @@ class OrientPPO:
 
     def update_place_agent(self, state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob):
         
+        trace_id = state_dict['trace_id']
         canvas = state_dict['canvas']
         wire_img = state_dict['wire_img_1oc']
         pos_mask = state_dict['pos_mask_1oc']
@@ -269,7 +257,9 @@ class OrientPPO:
         clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
         safe_rate = torch.logical_and(torch.gt(ratio, 1-self.clip_param), torch.lt(ratio, 1+self.clip_param)).float().mean()
         normalize_advantage = (batch_action_advantage - batch_action_advantage.mean()) / (batch_action_advantage.std() + 1e-8)
-        logger.info(f"action clip rate: {clip_rate*100:.2f}%, safe rate: {safe_rate*100:.2f}%, max: {ratio.max()}, min: {ratio.min()}, mean: {ratio.mean()}, std: {ratio.std()}, advantage: {batch_action_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
+        
+        for i in range(len(trace_id.shape[0])):
+            logger.info(f"trace_id: {trace_id[i]}, macro_id: {macro_id[i].cpu().item()}, orient: {orient[i].cpu().item()}, action: {batch_action[i].cpu().item()}, action_log_prob: {action_log_prob[i].cpu().item()}, old_action_log_prob: {batch_old_action_log_prob[i].cpu().item()}, ratio: {ratio[i].cpu().item()}")
 
         L1 = ratio * normalize_advantage.squeeze()
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage.squeeze()

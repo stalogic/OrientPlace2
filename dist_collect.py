@@ -1,8 +1,11 @@
 import os
 import gym
+import uuid
 import time
+import json
 import reverb
 import argparse
+import numpy as np
 import tensorflow as tf
 from loguru import logger
 
@@ -51,19 +54,11 @@ MODEL_INFO = reverb.TimestepDataset.from_table_signature(
 )
 
 def collect():
+    f = open("debug_ifno.jsonl", "r")
     while True:
         t0 = time.time()
         model = next(iter(MODEL_INFO.take(1)))
         model_variables = model.data
-
-        import numpy as np
-        params_hexdist = {}
-        for key, value in model_variables.items():
-            params_hexdist[key] = sum(tf.nest.map_structure(
-                lambda x: np.sum(np.abs(x.numpy())), 
-                tf.nest.flatten(value))
-            )
-        logger.info(f"model_id: {params_hexdist['model_id']}, params_hexdist: {params_hexdist}")
 
         model_variables = tf.nest.map_structure(tf_to_torch, model_variables)
         model_id = model_variables.pop('model_id').numpy().item()
@@ -78,6 +73,7 @@ def collect():
             done = False
             total_reward = 0
             trajectory = []
+            trace_id = str(uuid.uuid4())
             while not done:
                 orient_info, action_info, state_imgs = agent.select_action(state)
                 orient, orient_log_prob, orient_value = orient_info
@@ -86,23 +82,8 @@ def collect():
                 next_state, reward, done, _ = env.step(action, orient)
                 total_reward += reward
 
-                # mock data
-                macro_id = np.int64(0)
-                canvas = np.zeros_like(canvas)
-                wire_img_8oc = np.zeros_like(wire_img_8oc)
-                pos_mask_8oc = np.zeros_like(pos_mask_8oc)
-                wire_img_1oc = np.zeros_like(wire_img_1oc)
-                pos_mask_1oc = np.zeros_like(pos_mask_1oc)
-
-                orient = np.int64(0)
-                action = np.int64(64)
-                reward = 0
-                orient_log_prob = 0.1
-                action_log_prob = 0.1
-                action_value = 0
-                orient_value = 0
-
                 trajectory.append({
+                    'trace_id': trace_id,
                     'macro_id': macro_id,
                     'canvas': canvas,
                     'wire_img_8oc': wire_img_8oc,
@@ -129,10 +110,21 @@ def collect():
                 step_log['return'] = np.float32(cum_reward)
                 step_log['o_advantage'] = np.float32(cum_reward) - step_log['o_value']
                 step_log['a_advantage'] = np.float32(cum_reward) - step_log['a_value']
+                
+            for step_log in trajectory:
+                json_data = {}
+                for k,v in step_log.items():
+                    if len(v.shape) > 1:
+                        json_data[k] = np.sum(v)
+                    else:
+                        json_data[k] = v
+                f.write(json.dumps(json_data) + "\n")
+            
             for step_log in trajectory:
                 writer.append(step_log)
             writer.create_item('experience', model_id, 
                             trajectory= {
+                                'trace_id': writer.history['trace_id'][:],
                                 'macro_id': writer.history['macro_id'][:],
                                 'canvas': writer.history['canvas'][:],
                                 'wire_img_8oc': writer.history['wire_img_8oc'][:],
