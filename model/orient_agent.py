@@ -204,9 +204,18 @@ class OrientPPO:
             orient_advantage = torch.tensor(data['o_advantage'], dtype=torch.float).to(self.device)
             action_advantage = torch.tensor(data['a_advantage'], dtype=torch.float).to(self.device)
             target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
+        
+
+        action_advantage_mean = action_advantage.mean().cpu().item()
+        action_advantage_std = action_advantage.std().cpu().item()
+        action_advantage_pos_rate = (action_advantage > 0).float().mean().cpu().item()
+        action_advantage_neg_rate = (action_advantage < 0).float().mean().cpu().item()
+        logger.info(f"Action Advantage mean: {action_advantage_mean:.4f}, std: {action_advantage_std:.4f}, pos rate: {action_advantage_pos_rate*100:.2f}%, neg rate: {action_advantage_neg_rate*100:.2f}%")
 
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
-            logger.info(f"epoch {epoch+1} / {self.ppo_epoch}")
+            place_ratios = []
+            place_actor_losses = []
+            place_critic_losses = []
             for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
                 self.training_step += 1
 
@@ -237,7 +246,17 @@ class OrientPPO:
                 if self.train_orient_agent:
                     self.update_orient_agent(state_dict, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob)
                 if self.train_place_agent:
-                    self.update_place_agent(state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob)
+                    ratios, actor_loss, critic_loss = self.update_place_agent(state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob)
+                    place_ratios.append(ratios)
+                    place_actor_losses.append(actor_loss)
+                    place_critic_losses.append(critic_loss)
+
+            place_ratio = np.concatenate(place_ratios)
+            place_clip_rate = np.mean(np.abs(place_ratio - 1) > self.clip_param)
+            up_rate = np.mean(place_ratio > 1)
+            down_rate = np.mean(place_ratio < 1)
+            logger.info(f"Epoch {epoch+1} / {self.ppo_epoch}, actor_loss: {np.mean(place_actor_losses):.4e}, critic_loss: {np.mean(place_critic_losses):.4e}")
+            logger.info(f"Place ratio# clip_rate: {place_clip_rate*100:.2f}%, up_rate: {up_rate*100:.2f}%, down_rate: {down_rate*100:.2f}%, max: {np.max(place_ratio):.5f}, min: {np.min(place_ratio):.5f}, mean: {np.mean(place_ratio):.5f}, std: {np.std(place_ratio):.5f}")
 
         self._update_train_flag()
 
@@ -259,10 +278,7 @@ class OrientPPO:
         assert action_log_prob.shape == batch_old_action_log_prob.shape, f"{action_log_prob.shape=} != {batch_old_action_log_prob.shape=}"
         ratio = torch.exp(action_log_prob - batch_old_action_log_prob) # (batch_size,)
 
-        clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
         normalize_advantage = (batch_action_advantage - batch_action_advantage.mean()) / (batch_action_advantage.std() + 1e-8)
-        logger.info(f"place_actor clip rate: {clip_rate*100:.2f}%, advantage: {batch_action_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
-        
         assert ratio.shape == normalize_advantage.shape, f"{ratio.shape=} != {normalize_advantage.shape=}"
         L1 = ratio * normalize_advantage
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage
@@ -283,6 +299,8 @@ class OrientPPO:
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
         self.place_critic_optimizer.step()
         # self.place_critic_scheduler.step()
+
+        return ratio.detach().cpu().numpy(), action_loss.detach().cpu().numpy(), value_loss.detach().cpu().numpy()
 
     def update_orient_agent(self, batch_state, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob):
         canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)
