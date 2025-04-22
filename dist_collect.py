@@ -115,9 +115,9 @@ def collect():
                 json_data = {}
                 for k,v in step_log.items():
                     if isinstance(v, np.ndarray) and len(v.shape) > 1:
-                        json_data[k] = np.sum(v)
+                        json_data[k] = str(np.sum(v))
                     else:
-                        json_data[k] = v
+                        json_data[k] = str(v)
                 f.write(json.dumps(json_data) + "\n")
             
             for step_log in trajectory:
