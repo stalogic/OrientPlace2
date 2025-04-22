@@ -111,9 +111,9 @@ def collect():
             for step_log in reversed(trajectory):
                 reward = step_log['reward']
                 cum_reward = reward + args.gamma * cum_reward
-                step_log['return'] = cum_reward
-                step_log['o_advantage'] = cum_reward - step_log['o_value']
-                step_log['a_advantage'] = cum_reward - step_log['a_value']
+                step_log['return'] = np.float32(cum_reward)
+                step_log['o_advantage'] = np.float32(cum_reward) - step_log['o_value']
+                step_log['a_advantage'] = np.float32(cum_reward) - step_log['a_value']
             for step_log in trajectory:
                 writer.append(step_log)
             writer.create_item('experience', model_id, 
