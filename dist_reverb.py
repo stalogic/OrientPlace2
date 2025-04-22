@@ -68,14 +68,14 @@ data_signature = {
 
     'orient': tf.TensorSpec(shape=[None], dtype=tf.int64),
     'action': tf.TensorSpec(shape=[None], dtype=tf.int64),
-    'reward': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'o_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'a_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'o_value': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'a_value': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'return': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'o_advantage': tf.TensorSpec(shape=[None], dtype=tf.float64),
-    'a_advantage': tf.TensorSpec(shape=[None], dtype=tf.float64),
+    'reward': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'o_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'a_log_prob': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'o_value': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'a_value': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'return': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'o_advantage': tf.TensorSpec(shape=[None], dtype=tf.float32),
+    'a_advantage': tf.TensorSpec(shape=[None], dtype=tf.float32),
     'model_id': tf.TensorSpec(shape=[], dtype=tf.int64),
 }
 
