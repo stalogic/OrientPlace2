@@ -95,11 +95,11 @@ def collect():
 
                     'orient': orient,
                     'action': action,
-                    'reward': float(reward)/2000,
-                    'o_log_prob': orient_log_prob,
-                    'a_log_prob': action_log_prob,
-                    'o_value': orient_value,
-                    'a_value': action_value,
+                    'reward': np.float32(reward/2000),
+                    'o_log_prob': np.float32(orient_log_prob),
+                    'a_log_prob': np.float32(action_log_prob),
+                    'o_value': np.float32(orient_value),
+                    'a_value': np.float32(action_value),
                     'model_id': model_id,
                     
 
