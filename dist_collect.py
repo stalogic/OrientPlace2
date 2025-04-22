@@ -1,8 +1,6 @@
 import os
 import gym
-import uuid
 import time
-import json
 import reverb
 import argparse
 import numpy as np
@@ -54,7 +52,6 @@ MODEL_INFO = reverb.TimestepDataset.from_table_signature(
 )
 
 def collect():
-    f = open("debug_ifno.jsonl", "w")
     while True:
         t0 = time.time()
         model = next(iter(MODEL_INFO.take(1)))
@@ -73,7 +70,6 @@ def collect():
             done = False
             total_reward = 0
             trajectory = []
-            trace_id = str(uuid.uuid4())
             while not done:
                 orient_info, action_info, state_imgs = agent.select_action(state)
                 orient, orient_log_prob, orient_value = orient_info
@@ -83,7 +79,6 @@ def collect():
                 total_reward += reward
 
                 trajectory.append({
-                    'trace_id': trace_id,
                     'macro_id': macro_id,
                     'canvas': canvas,
                     'wire_img_8oc': wire_img_8oc,
@@ -110,21 +105,11 @@ def collect():
                 step_log['return'] = np.float32(cum_reward)
                 step_log['o_advantage'] = np.float32(cum_reward) - step_log['o_value']
                 step_log['a_advantage'] = np.float32(cum_reward) - step_log['a_value']
-
-            for step_log in trajectory:
-                json_data = {}
-                for k,v in step_log.items():
-                    if isinstance(v, np.ndarray) and len(v.shape) > 1:
-                        json_data[k] = str(np.sum(v))
-                    else:
-                        json_data[k] = str(v)
-                f.write(json.dumps(json_data) + "\n")
             
             for step_log in trajectory:
                 writer.append(step_log)
             writer.create_item('experience', model_id, 
                             trajectory= {
-                                'trace_id': writer.history['trace_id'][:],
                                 'macro_id': writer.history['macro_id'][:],
                                 'canvas': writer.history['canvas'][:],
                                 'wire_img_8oc': writer.history['wire_img_8oc'][:],

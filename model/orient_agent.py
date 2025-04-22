@@ -109,29 +109,36 @@ class OrientPPO:
         pos_mask_8oc = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
         macro_id = state[:, -3]
 
+        batch_size = state.shape[0]
+
         with torch.no_grad():
             self.orient_actor_net.eval()
             self.orient_critic_net.eval()
             self.place_actor_net.eval()
             self.place_critic_net.eval()
-            # self.debug_print()
 
             orient_probs = self.orient_actor_net(canvas, wire_img_8oc, pos_mask_8oc)
+            assert orient_probs.shape == (batch_size, 8), f"{orient_probs.shape=} != {(batch_size, 8)=}"
             orient_dist = Categorical(orient_probs)
             orient = orient_dist.sample()
-            orient_prob = orient_dist.log_prob(orient)
+            orient_log_prob = orient_dist.log_prob(orient)
+            assert orient_log_prob.shape == (batch_size,), f"{orient_log_prob.shape=} != {(batch_size,)=}"
             orient_value = self.orient_critic_net(canvas, wire_img_8oc, pos_mask_8oc, macro_id)
+            assert orient_value.shape == (batch_size, 1), f"{orient_value.shape=} != {(batch_size, 1)=}"
 
             wire_img_1oc = wire_img_8oc[:, orient.item(), :, :].reshape(-1, 1, self.grid, self.grid)
             pos_mask_1oc = pos_mask_8oc[:, orient.item(), :, :].reshape(-1, 1, self.grid, self.grid)
 
             action_probs = self.place_actor_net(canvas, wire_img_1oc, pos_mask_1oc)
+            assert action_probs.shape == (batch_size, self.grid*self.grid), f"{action_probs.shape=} != {(batch_size, self.grid*self.grid)=}"
             action_dist = Categorical(action_probs)
             action = action_dist.sample()
             action_log_prob = action_dist.log_prob(action)
+            assert action_log_prob.shape == (batch_size,), f"{action_log_prob.shape=} != {(batch_size,)=}"
             action_value = self.place_critic_net(canvas, wire_img_1oc, pos_mask_1oc, macro_id, orient)
+            assert action_value.shape == (batch_size,1), f"{action_value.shape=} != {(batch_size,1)=}"
 
-            orient_info = orient.item(), orient_prob.item(), orient_value.item()
+            orient_info = orient.item(), orient_log_prob.item(), orient_value.item()
             action_info = action.item(), action_log_prob.item(), action_value.item()
             # 添加[0]来移除batch维度
             state_imgs = macro_id.long().item(), canvas[0].cpu().numpy(), wire_img_8oc[0].cpu().numpy(), pos_mask_8oc[0].cpu().numpy(), wire_img_1oc[0].cpu().numpy(), pos_mask_1oc[0].cpu().numpy()
@@ -183,7 +190,6 @@ class OrientPPO:
             self.buffer.clear()
         else:
             # 分布式训练，数据来自reverb
-            trace_id = data['trace_id']
             macro_id = torch.tensor(data['macro_id'], dtype=torch.int64).to(self.device)
             canvas = torch.tensor(data['canvas'], dtype=torch.float).to(self.device)
             wire_img_8oc = torch.tensor(data['wire_img_8oc'], dtype=torch.float).to(self.device)
@@ -204,7 +210,6 @@ class OrientPPO:
             for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
                 self.training_step += 1
 
-                batch_trace_id = trace_id[index]
                 batch_macro_id = macro_id[index].to(self.device)
                 batch_canvas = canvas[index].to(self.device)
                 batch_wire_img_8oc = wire_img_8oc[index].to(self.device)
@@ -213,7 +218,6 @@ class OrientPPO:
                 batch_pos_mask_1oc = pos_mask_1oc[index].to(self.device)
 
                 state_dict = {
-                    'trace_id': batch_trace_id,
                     'macro_id': batch_macro_id,
                     'canvas': batch_canvas,
                     'wire_img_8oc': batch_wire_img_8oc,
@@ -238,33 +242,33 @@ class OrientPPO:
         self._update_train_flag()
 
     def update_place_agent(self, state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob):
-        
-        trace_id = state_dict['trace_id']
         canvas = state_dict['canvas']
         wire_img = state_dict['wire_img_1oc']
         pos_mask = state_dict['pos_mask_1oc']
         macro_id = state_dict['macro_id'].squeeze()
         orient = batch_orient.squeeze()
+        batch_action = batch_action.squeeze()
+        batch_action_advantage = batch_action_advantage.squeeze()
+        batch_old_action_log_prob = batch_old_action_log_prob.squeeze()
 
         self.place_actor_net.train()
         self.place_critic_net.train()
 
         action_probs = self.place_actor_net(canvas, wire_img, pos_mask)
-        dist = Categorical(action_probs)
-        action_log_prob = dist.log_prob(batch_action)
-        ratio = torch.exp(action_log_prob - batch_old_action_log_prob).squeeze()
+        action_log_prob = Categorical(action_probs).log_prob(batch_action)
+        assert action_log_prob.shape == batch_old_action_log_prob.shape, f"{action_log_prob.shape=} != {batch_old_action_log_prob.shape=}"
+        ratio = torch.exp(action_log_prob - batch_old_action_log_prob) # (batch_size,)
 
         clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
-        safe_rate = torch.logical_and(torch.gt(ratio, 1-self.clip_param), torch.lt(ratio, 1+self.clip_param)).float().mean()
         normalize_advantage = (batch_action_advantage - batch_action_advantage.mean()) / (batch_action_advantage.std() + 1e-8)
+        logger.info(f"place_actor clip rate: {clip_rate*100:.2f}%, advantage: {batch_action_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
         
-        for i in range(len(trace_id.shape[0])):
-            logger.info(f"trace_id: {trace_id[i]}, macro_id: {macro_id[i].cpu().item()}, orient: {orient[i].cpu().item()}, action: {batch_action[i].cpu().item()}, action_log_prob: {action_log_prob[i].cpu().item()}, old_action_log_prob: {batch_old_action_log_prob[i].cpu().item()}, ratio: {ratio[i].cpu().item()}")
-
-        L1 = ratio * normalize_advantage.squeeze()
-        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage.squeeze()
+        assert ratio.shape == normalize_advantage.shape, f"{ratio.shape=} != {normalize_advantage.shape=}"
+        L1 = ratio * normalize_advantage
+        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage
+        assert L1.shape == L2.shape, f"{L1.shape=} != {L2.shape=}"
         action_loss = -torch.min(L1, L2).mean()  # MAX->MIN desent
-        # logger.info(f"action policy loss: {action_loss.cpu().detach().numpy().item()}")
+        assert action_loss.shape == (), f"{action_loss.shape=}"
 
         self.place_actor_optimizer.zero_grad()
         action_loss.backward()
@@ -274,7 +278,6 @@ class OrientPPO:
 
         place_value = self.place_critic_net(canvas, wire_img, pos_mask, macro_id, orient)
         value_loss = F.smooth_l1_loss(place_value, batch_target_value)
-        # logger.info(f"action value loss: {value_loss.cpu().detach().numpy().item()}")
         self.place_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.place_critic_net.parameters(), self.max_grad_norm)
@@ -286,22 +289,28 @@ class OrientPPO:
         wire_img = batch_state[:, self.WIRE_SLICE].reshape(self.batch_size, 8, self.grid, self.grid)
         pos_mask = batch_state[:, self.POS_SLICE].reshape(self.batch_size, 8, self.grid, self.grid)
         macro_id = batch_state[:, -3]
+        batch_orient = batch_orient.squeeze()
+        batch_orient_advantage = batch_orient_advantage.squeeze()
+        batch_old_orient_log_prob = batch_old_orient_log_prob.squeeze()
 
         self.orient_actor_net.train()
         self.orient_critic_net.train()
 
         orient_probs = self.orient_actor_net(canvas, wire_img, pos_mask)
-        dist = Categorical(orient_probs)
-        orient_log_prob = dist.log_prob(batch_orient)
-        ratio = torch.exp(orient_log_prob - batch_old_orient_log_prob).squeeze()
+        orient_log_prob = Categorical(orient_probs).log_prob(batch_orient)
+        assert orient_log_prob.shape == batch_old_orient_log_prob.shape, f"{orient_log_prob.shape=} != {batch_old_orient_log_prob.shape=}"
+        ratio = torch.exp(orient_log_prob - batch_old_orient_log_prob)
 
         clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
         normalize_advantage = (batch_orient_advantage - batch_orient_advantage.mean()) / (batch_orient_advantage.std() + 1e-8)
-        logger.info(f"orient clip rate: {clip_rate*100:.2f}%, advantage: {batch_orient_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
+        logger.info(f"orient_actor clip rate: {clip_rate*100:.2f}%, advantage: {batch_orient_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
 
-        L1 = ratio * normalize_advantage.squeeze()
-        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage.squeeze()
+        assert ratio.shape == normalize_advantage.shape, f"{ratio.shape=} != {normalize_advantage.shape=}"
+        L1 = ratio * normalize_advantage
+        L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage
+        assert L1.shape == L2.shape, f"{L1.shape=} != {L2.shape=}"
         orient_loss = -torch.min(L1, L2).mean()
+        assert orient_loss.shape == (), f"{orient_loss.shape=}"
         logger.info(f"orient value loss: {orient_loss.cpu().detach().numpy().item()}")
 
         self.orient_actor_optimizer.zero_grad()
