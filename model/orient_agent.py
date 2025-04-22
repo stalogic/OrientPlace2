@@ -110,11 +110,11 @@ class OrientPPO:
         macro_id = state[:, -3]
 
         with torch.no_grad():
-            # self.orient_actor_net.eval()
-            # self.orient_critic_net.eval()
-            # self.place_actor_net.eval()
-            # self.place_critic_net.eval()
-            self.debug_print()
+            self.orient_actor_net.eval()
+            self.orient_critic_net.eval()
+            self.place_actor_net.eval()
+            self.place_critic_net.eval()
+            # self.debug_print()
 
             orient_probs = self.orient_actor_net(canvas, wire_img_8oc, pos_mask_8oc)
             orient_dist = Categorical(orient_probs)
@@ -198,7 +198,7 @@ class OrientPPO:
             action_advantage = torch.tensor(data['a_advantage'], dtype=torch.float).to(self.device)
             target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
 
-        self.debug_print()
+        # self.debug_print()
 
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
             logger.info(f"epoch {epoch+1} / {self.ppo_epoch}")

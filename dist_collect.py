@@ -85,6 +85,23 @@ def collect():
                 macro_id, canvas, wire_img_8oc, pos_mask_8oc, wire_img_1oc, pos_mask_1oc = state_imgs
                 next_state, reward, done, _ = env.step(action, orient)
                 total_reward += reward
+
+                # mock data
+                macro_id = np.int64(0)
+                canvas = np.zeros_like(canvas)
+                wire_img_8oc = np.zeros_like(wire_img_8oc)
+                pos_mask_8oc = np.zeros_like(pos_mask_8oc)
+                wire_img_1oc = np.zeros_like(wire_img_1oc)
+                pos_mask_1oc = np.zeros_like(pos_mask_1oc)
+
+                orient = np.int64(0)
+                action = np.int64(64)
+                reward = 0
+                orient_log_prob = 0.1
+                action_log_prob = 0.1
+                action_value = 0
+                orient_value = 0
+
                 trajectory.append({
                     'macro_id': macro_id,
                     'canvas': canvas,
@@ -101,8 +118,6 @@ def collect():
                     'o_value': np.float32(orient_value),
                     'a_value': np.float32(action_value),
                     'model_id': model_id,
-                    
-
                 })
                 state = next_state
             t2 = time.time()
