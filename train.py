@@ -173,7 +173,7 @@ def main():
 
                 agent.save_model(MODEL_PATH, save_flag)
                 fig_name = FIGURE_PATH / f"{save_flag}.png"
-                env.save_flyline(fig_name)
+                env.plot(fig_name)
                 print(f"save_figure: {fig_name}")
                 pl_name = PLACE_PATH / f"{save_flag}.pl"
                 env.save_pl_file(pl_name)

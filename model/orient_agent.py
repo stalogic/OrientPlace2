@@ -72,7 +72,7 @@ class OrientPPO:
 
     def save_model(self, save_path: Path, save_flag: str):
         save_path.mkdir(parents=True, exist_ok=True)
-        with gzip.open(save_path / f"{save_flag}_state_dict.pkl", "wb") as f:
+        with gzip.open(save_path / f"{save_flag}_state_dict.pkl.gz", "wb") as f:
             torch.save(
                 {
                     "place_actor_net": self.place_actor_net.state_dict(),

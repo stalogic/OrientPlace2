@@ -525,7 +525,7 @@ class OrientPlaceEnv(gym.Env):
         return mask
 
     @trackit
-    def save_flyline(self, file_path: Path) -> None:
+    def plot(self, file_path: Path) -> None:
 
         if isinstance(file_path, str):
             file_path = pathlib.Path(file_path)
@@ -713,11 +713,12 @@ class OrientPlaceEnv(gym.Env):
         return node_metric_dict
 
     @trackit
-    def save_pl_file(self, file_path):
+    def save_pl_file(self, file_path: Path):
         """
         save hard macro placement resut in .pl file
         """
-
+        file_path.mkdir(parents=True, exist_ok=True)
+        
         count = 0
         with open(file_path, "w") as fwrite:
             for node_name in self.node_pos:

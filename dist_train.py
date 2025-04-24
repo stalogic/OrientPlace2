@@ -69,7 +69,7 @@ def train():
     logger.info(f"start training, model_iterations: {args.model_iterations}, iter_per_model: {args.iter_per_model}")
     for model_id in range(args.model_iterations):
         t0 = time.time()
-        agent.save_model(RESULT_ROOT / "checkpoints", f"M{model_id}")
+        agent.save_model(RESULT_ROOT / f"chpt-{model_id}" / "checkpoints", f"M{model_id}")
         model_variables = {
             'orient_actor': agent.orient_actor_net.state_dict(),
             'orient_critic': agent.orient_critic_net.state_dict(),
