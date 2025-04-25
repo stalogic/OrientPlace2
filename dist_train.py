@@ -43,11 +43,19 @@ reader = LefDefReader(data_root, args.design_name, cache_root)
 placedb = build_soft_macro_placedb(reader, cache_root=cache_root)
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
 placed_num_macro = len(placedb.macro_info)
-agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=args.mini_batch, lr=3e-4, gamma=0.98, device='cuda')
+learning_rate = {
+    "place_actor": 3e-5,
+    "place_critic": 1e-4,
+    "orient_actor": 1e-8,
+    "orient_critic": 1e-4,
+}
+agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=args.mini_batch, lr=learning_rate, gamma=0.98, device='cuda')
 agent.CANVAS_SLICE = env.CANVAS_SLICE
 agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
 agent.FEATURE_SLICE = env.FEATURE_SLICE
+
+agent.train_orient_agent = True
 
 strftime = time.strftime("%m%d%H%M", time.localtime())
 run_id = f"{args.design_name}_{strftime}_pnm_{placed_num_macro}_seed_{args.seed}"

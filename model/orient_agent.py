@@ -25,7 +25,7 @@ class OrientPPO:
         grid: int,
         num_game_per_update:int,
         batch_size: int,
-        lr: float,
+        lr: float, #| dict[str, float],
         gamma: float,
         device: str,
     ):
@@ -43,10 +43,24 @@ class OrientPPO:
         self.buffer = []
         self.counter = 0
         self.training_step = 0
-        self.place_actor_optimizer = optim.Adam(self.place_actor_net.parameters(), lr)
-        self.place_critic_optimizer = optim.Adam(self.place_critic_net.parameters(), lr)
-        self.orient_actor_optimizer = optim.Adam(self.orient_actor_net.parameters(), lr)
-        self.orient_critic_optimizer = optim.Adam(self.orient_critic_net.parameters(), lr)
+        if isinstance(lr, float):
+            place_actor_lr = lr
+            place_critic_lr = lr
+            orient_actor_lr = lr
+            orient_critic_lr = lr
+        elif isinstance(lr, dict):
+            place_actor_lr = lr.get("place_actor", 1e-5)
+            place_critic_lr = lr.get("place_critic", place_actor_lr)
+            orient_actor_lr = lr.get("orient_actor", 1e-5)
+            orient_critic_lr = lr.get("orient_critic", orient_actor_lr)
+        else:
+            raise ValueError("lr must be float or dict")
+        logger.info(f"{place_actor_lr=}, {place_critic_lr=}, {orient_actor_lr=}, {orient_critic_lr=}")
+        self.place_actor_optimizer = optim.Adam(self.place_actor_net.parameters(), place_actor_lr)
+        self.place_critic_optimizer = optim.Adam(self.place_critic_net.parameters(), place_critic_lr)
+        self.orient_actor_optimizer = optim.Adam(self.orient_actor_net.parameters(), orient_actor_lr)
+        self.orient_critic_optimizer = optim.Adam(self.orient_critic_net.parameters(), orient_critic_lr)
+
         self.place_actor_scheduler = optim.lr_scheduler.StepLR(self.place_actor_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
         self.place_critic_scheduler = optim.lr_scheduler.StepLR(self.place_critic_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
         self.orient_actor_scheduler = optim.lr_scheduler.StepLR(self.orient_actor_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
@@ -212,10 +226,19 @@ class OrientPPO:
         action_advantage_neg_rate = (action_advantage < 0).float().mean().cpu().item()
         logger.info(f"Action Advantage mean: {action_advantage_mean:.4f}, std: {action_advantage_std:.4f}, pos rate: {action_advantage_pos_rate*100:.2f}%, neg rate: {action_advantage_neg_rate*100:.2f}%")
 
+        orient_advantage_mean = orient_advantage.mean().cpu().item()
+        orient_advantage_std = orient_advantage.std().cpu().item()
+        orient_advantage_pos_rate = (orient_advantage > 0).float().mean().cpu().item()
+        orient_advantage_neg_rate = (orient_advantage < 0).float().mean().cpu().item()
+        logger.info(f"Orient Advantage mean: {orient_advantage_mean:.4f}, std: {orient_advantage_std:.4f}, pos rate: {orient_advantage_pos_rate*100:.2f}%, neg rate: {orient_advantage_neg_rate*100:.2f}%")
+
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
-            place_ratios = []
+            place_ratio_list = []
             place_actor_losses = []
             place_critic_losses = []
+            orient_ratio_list = []
+            orient_actor_losses = []
+            orient_critic_losses = []
             for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
                 self.training_step += 1
 
@@ -244,19 +267,29 @@ class OrientPPO:
                 batch_target_value = target_value[index].to(self.device)
 
                 if self.train_orient_agent:
-                    self.update_orient_agent(state_dict, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob)
+                    ratios, actor_loss, critic_loss = self.update_orient_agent(state_dict, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob)
+                    orient_ratio_list.append(ratios)
+                    orient_actor_losses.append(actor_loss)
+                    orient_critic_losses.append(critic_loss)
                 if self.train_place_agent:
                     ratios, actor_loss, critic_loss = self.update_place_agent(state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob)
-                    place_ratios.append(ratios)
+                    place_ratio_list.append(ratios)
                     place_actor_losses.append(actor_loss)
                     place_critic_losses.append(critic_loss)
+            
+            orient_ratio = np.concatenate(orient_ratio_list)
+            orient_clip_rate = np.mean(np.abs(orient_ratio - 1) > self.clip_param)
+            orient_up_rate = np.mean(orient_ratio > 1)
+            orient_down_rate = np.mean(orient_ratio < 1)
 
-            place_ratio = np.concatenate(place_ratios)
+            place_ratio = np.concatenate(place_ratio_list)
             place_clip_rate = np.mean(np.abs(place_ratio - 1) > self.clip_param)
-            up_rate = np.mean(place_ratio > 1)
-            down_rate = np.mean(place_ratio < 1)
-            logger.info(f"Epoch {epoch+1} / {self.ppo_epoch}, actor_loss: {np.mean(place_actor_losses):.4e}, critic_loss: {np.mean(place_critic_losses):.4e}")
-            logger.info(f"Place ratio# clip_rate: {place_clip_rate*100:.2f}%, up_rate: {up_rate*100:.2f}%, down_rate: {down_rate*100:.2f}%, max: {np.max(place_ratio):.5f}, min: {np.min(place_ratio):.5f}, mean: {np.mean(place_ratio):.5f}, std: {np.std(place_ratio):.5f}")
+            place_up_rate = np.mean(place_ratio > 1)
+            place_down_rate = np.mean(place_ratio < 1)
+            logger.info(f"Epoch {epoch+1} / {self.ppo_epoch}, place_actor_loss: {np.mean(place_actor_losses):.4e}, place_critic_loss: {np.mean(place_critic_losses):.4e}, orient_actor_loss: {np.mean(orient_actor_losses):.4e}, orient_critic_loss: {np.mean(orient_critic_losses):.4e}")
+            logger.info(f"Orient ratio# clip_rate: {orient_clip_rate*100:.2f}%, up_rate: {orient_up_rate*100:.2f}%, down_rate: {orient_down_rate*100:.2f}%, max: {np.max(orient_ratio):.5f}, min: {np.min(orient_ratio):.5f}, mean: {np.mean(orient_ratio):.5f}, std: {np.std(orient_ratio):.5f}")
+            logger.info(f"Place ratio# clip_rate: {place_clip_rate*100:.2f}%, up_rate: {place_up_rate*100:.2f}%, down_rate: {place_down_rate*100:.2f}%, max: {np.max(place_ratio):.5f}, min: {np.min(place_ratio):.5f}, mean: {np.mean(place_ratio):.5f}, std: {np.std(place_ratio):.5f}")
+
 
         self._update_train_flag()
 
@@ -302,11 +335,11 @@ class OrientPPO:
 
         return ratio.detach().cpu().numpy(), action_loss.detach().cpu().numpy(), value_loss.detach().cpu().numpy()
 
-    def update_orient_agent(self, batch_state, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob):
-        canvas = batch_state[:, self.CANVAS_SLICE].reshape(self.batch_size, 1, self.grid, self.grid)
-        wire_img = batch_state[:, self.WIRE_SLICE].reshape(self.batch_size, 8, self.grid, self.grid)
-        pos_mask = batch_state[:, self.POS_SLICE].reshape(self.batch_size, 8, self.grid, self.grid)
-        macro_id = batch_state[:, -3]
+    def update_orient_agent(self, state_dict, batch_orient, batch_target_value, batch_orient_advantage, batch_old_orient_log_prob):
+        canvas = state_dict["canvas"]
+        wire_img = state_dict["wire_img_8oc"]
+        pos_mask = state_dict["pos_mask_8oc"]
+        macro_id = state_dict["macro_id"].squeeze()
         batch_orient = batch_orient.squeeze()
         batch_orient_advantage = batch_orient_advantage.squeeze()
         batch_old_orient_log_prob = batch_old_orient_log_prob.squeeze()
@@ -318,18 +351,13 @@ class OrientPPO:
         orient_log_prob = Categorical(orient_probs).log_prob(batch_orient)
         assert orient_log_prob.shape == batch_old_orient_log_prob.shape, f"{orient_log_prob.shape=} != {batch_old_orient_log_prob.shape=}"
         ratio = torch.exp(orient_log_prob - batch_old_orient_log_prob)
-
-        clip_rate = torch.abs(ratio - 1).gt(self.clip_param).float().mean()
         normalize_advantage = (batch_orient_advantage - batch_orient_advantage.mean()) / (batch_orient_advantage.std() + 1e-8)
-        logger.info(f"orient_actor clip rate: {clip_rate*100:.2f}%, advantage: {batch_orient_advantage.abs().mean().item():.2f}, normalize advantage: {normalize_advantage.abs().mean().item():.2f}")
-
         assert ratio.shape == normalize_advantage.shape, f"{ratio.shape=} != {normalize_advantage.shape=}"
         L1 = ratio * normalize_advantage
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage
         assert L1.shape == L2.shape, f"{L1.shape=} != {L2.shape=}"
         orient_loss = -torch.min(L1, L2).mean()
         assert orient_loss.shape == (), f"{orient_loss.shape=}"
-        logger.info(f"orient value loss: {orient_loss.cpu().detach().numpy().item()}")
 
         self.orient_actor_optimizer.zero_grad()
         orient_loss.backward()
@@ -339,10 +367,11 @@ class OrientPPO:
 
         orient_value = self.orient_critic_net(canvas, wire_img, pos_mask, macro_id)
         value_loss = F.smooth_l1_loss(orient_value, batch_target_value)
-        logger.info(f"orient value loss: {value_loss.cpu().detach().numpy().item()}")
         self.orient_critic_optimizer.zero_grad()
         value_loss.backward()
         nn.utils.clip_grad_norm_(self.orient_critic_net.parameters(), self.max_grad_norm)
         self.orient_critic_optimizer.step()
         # self.orient_critic_scheduler.step()
+
+        return ratio.detach().cpu().numpy(), orient_loss.detach().cpu().numpy(), value_loss.detach().cpu().numpy()
 
