@@ -717,7 +717,6 @@ class OrientPlaceEnv(gym.Env):
         """
         save hard macro placement resut in .pl file
         """
-        file_path.mkdir(parents=True, exist_ok=True)
         
         count = 0
         with open(file_path, "w") as fwrite:
