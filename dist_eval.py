@@ -35,7 +35,7 @@ reader = LefDefReader(data_root, args.design_name, cache_root)
 placedb = build_soft_macro_placedb(reader, cache_root=cache_root)
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
 placed_num_macro = len(placedb.macro_info)
-agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=args.mini_batch, lr=3e-4, gamma=0.98, device='cuda')
+agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=10, lr=3e-4, gamma=0.98, device='cuda')
 agent.CANVAS_SLICE = env.CANVAS_SLICE
 agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
@@ -45,6 +45,14 @@ agent.FEATURE_SLICE = env.FEATURE_SLICE
 def evaluate_model(chpt_path: Path):
     model_chpt = next((chpt_path / "checkpoints").glob("*_state_dict.pkl.gz"))
     agent.load_model(model_chpt)
+
+    pic_path = chpt_path / "pictures"
+    pl_path = chpt_path / "placements"
+
+    pic_path.mkdir(parents=True, exist_ok=True)
+    pl_path.mkdir(parents=True, exist_ok=True)
+
+    hpwl_list = []
 
     for i in range(args.eval_num):
         state = env.reset()
@@ -57,23 +65,31 @@ def evaluate_model(chpt_path: Path):
             state = next_state
 
         hpwl, cost = env.calc_hpwl_and_cost()
-        env.plot(chpt_path / "pictures" / f"evaluation_{i}_h{hpwl}_c{cost}_r{total_reward}.png")
-        env.save_pl_file(chpt_path / "placements" / f"evaluation_{i}_h{hpwl}_c{cost}_r{total_reward}.pl")
+        hpwl_list.append(hpwl)
+        prefix = f"H[{hpwl:.4e}_C[{cost:.4e}]_R[{total_reward:.4e}]]"
+        env.plot(pic_path / f"evaluation_{i}_{prefix}.png")
+        env.save_pl_file(pl_path / f"evaluation_{i}_{prefix}.pl")
+
+    return min(hpwl_list), max(hpwl_list)
 
 
 def eval():
-    eval_set = set()
     result_path = Path(args.result_dir)
     while True:
+        chpts:list[Path] = []
         for p in result_path.iterdir():
-            if not p.is_dir():
-                continue
+            if p.is_dir():
+                sps = p.name.split("-")
+                if len(sps) == 2:
+                    chpts.append(p)
 
-            model_id = int(p.name.split("_")[1])
-            if model_id in eval_set:
-                continue
-            eval_set.add(model_id)
-            evaluate_model(p)
+        if len(chpts) == 0:
+            time.sleep(10)
+            continue
+
+        for p in sorted(chpts, key=lambda x: int(x.name.split("-")[1])):
+            min_hpwl, max_hpwl = evaluate_model(p)
+            p.rename(p.parent / f"{p.name}-{min_hpwl:.4e}-{max_hpwl:.4e}")
 
 
 if __name__ == "__main__":
