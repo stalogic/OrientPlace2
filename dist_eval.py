@@ -1,6 +1,7 @@
 import os
 import gym
 import time
+import shutil
 import argparse
 from pathlib import Path
 from loguru import logger
@@ -16,6 +17,7 @@ parser.add_argument("--design_name", type=str, default="ariane133")
 parser.add_argument("--project_root", type=str, default=".")
 
 parser.add_argument("--result_dir", type=str)
+parser.add_argument("--clean", action="store_true", default=False, help="clean existing evaluation results")
 parser.add_argument("--eval_num", type=int, default=10)
 
 parser.add_argument("--seed", type=int, default=None)
@@ -75,6 +77,17 @@ def evaluate_model(chpt_path: Path):
 
 def eval():
     result_path = Path(args.result_dir)
+
+    if args.clean:
+        for p in result_path.iterdir():
+            if p.is_dir():
+                if (pic_path:=p / "pictures").exists():
+                    shutil.rmtree(pic_path)
+                if (pl_path:=p / "placements").exists():
+                    shutil.rmtree(pl_path)
+                if len(sps:=p.name.split("-")) >= 2:
+                    p.rename(p.parent / "-".join(sps[:2]))
+
     while True:
         chpts:list[Path] = []
         for p in result_path.iterdir():
@@ -88,8 +101,11 @@ def eval():
             continue
 
         for p in sorted(chpts, key=lambda x: int(x.name.split("-")[1])):
-            min_hpwl, max_hpwl = evaluate_model(p)
-            p.rename(p.parent / f"{p.name}-{min_hpwl:.4e}-{max_hpwl:.4e}")
+            try:
+                min_hpwl, max_hpwl = evaluate_model(p)
+                p.rename(p.parent / f"{p.name}-{min_hpwl:.4e}-{max_hpwl:.4e}")
+            except:
+                p.rename(p.parent / f"{p.name}-eval-failed")
 
 
 if __name__ == "__main__":

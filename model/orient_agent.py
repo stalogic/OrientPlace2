@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from retry import retry
 from loguru import logger
 from pathlib import Path
 from torch.distributions import Categorical
@@ -77,13 +78,15 @@ class OrientPPO:
         self.POS_SLICE = None
         self.FEATURE_SLICE = None
 
+    @retry(tries=3, delay=1, backoff=2)
     def load_model(self, path: Path):
         with gzip.open(path, "rb") as f:
             checkpoint = torch.load(f, map_location=torch.device(self.device))
             self.place_actor_net.load_state_dict(checkpoint["place_actor_net"])
             self.place_critic_net.load_state_dict(checkpoint["place_critic_net"])
             self.orient_actor_net.load_state_dict(checkpoint["orient_actor_net"])
-
+            
+    @retry(tries=3, delay=1, backoff=2)
     def save_model(self, save_path: Path, save_flag: str):
         save_path.mkdir(parents=True, exist_ok=True)
         with gzip.open(save_path / f"{save_flag}_state_dict.pkl.gz", "wb") as f:
