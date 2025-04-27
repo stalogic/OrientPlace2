@@ -95,6 +95,9 @@ def eval():
                 sps = p.name.split("-")
                 if len(sps) == 2:
                     chpts.append(p)
+                elif "eval-failed" in p.name:
+                    p.rename(p.parent / "-".join(sps[:2]))
+                    chpts.append(p)
 
         if len(chpts) == 0:
             time.sleep(10)
