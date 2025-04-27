@@ -96,8 +96,8 @@ def eval():
                 if len(sps) == 2:
                     chpts.append(p)
                 elif "eval-failed" in p.name:
-                    p.rename(p.parent / "-".join(sps[:2]))
-                    chpts.append(p)
+                    new_path = p.rename(p.parent / "-".join(sps[:2]))
+                    chpts.append(new_path)
 
         if len(chpts) == 0:
             time.sleep(10)
