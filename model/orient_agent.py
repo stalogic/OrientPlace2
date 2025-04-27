@@ -85,7 +85,7 @@ class OrientPPO:
             self.place_actor_net.load_state_dict(checkpoint["place_actor_net"])
             self.place_critic_net.load_state_dict(checkpoint["place_critic_net"])
             self.orient_actor_net.load_state_dict(checkpoint["orient_actor_net"])
-            
+
     @retry(tries=3, delay=1, backoff=2)
     def save_model(self, save_path: Path, save_flag: str):
         save_path.mkdir(parents=True, exist_ok=True)
@@ -104,18 +104,6 @@ class OrientPPO:
         self.buffer.append(transition)
         self.counter += 1
         return self.counter % self.buffer_capacity == 0
-    
-    def debug_print(self):
-        macro_id = torch.from_numpy(np.array([1])).long().to(self.device)
-        orient = torch.from_numpy(np.array([0])).long().to(self.device)
-        canvas = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32)).to(self.device)
-        wire_img_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32)).to(self.device)
-        pos_mask_1oc = torch.from_numpy(np.ones((1, 1, self.grid, self.grid), dtype=np.float32)).to(self.device)
-        action_probs = self.place_actor_net(canvas, wire_img_1oc, pos_mask_1oc).cpu()
-        action_value = self.place_critic_net(canvas, wire_img_1oc, pos_mask_1oc, macro_id, orient).cpu()
-
-        probs_sum = action_probs.squeeze().sum(dim=-1).item()
-        logger.info(f"probs_sum: {probs_sum}, action_value: {action_value.squeeze().item()}, {action_probs[0,:10]=}")
 
     @trackit
     def select_action(self, state) -> tuple[int, int, float, float]:
@@ -236,12 +224,11 @@ class OrientPPO:
         logger.info(f"Orient Advantage mean: {orient_advantage_mean:.4f}, std: {orient_advantage_std:.4f}, pos rate: {orient_advantage_pos_rate*100:.2f}%, neg rate: {orient_advantage_neg_rate*100:.2f}%")
 
         for epoch in range(self.ppo_epoch):  # iteration ppo_epoch
-            place_ratio_list = []
-            place_actor_losses = []
-            place_critic_losses = []
-            orient_ratio_list = []
-            orient_actor_losses = []
-            orient_critic_losses = []
+            epoch_progess = f" Epoch {epoch+1} / {self.ppo_epoch} "
+            logger.info(f"{epoch_progess:-^80}")
+
+            orient_ratio_list, orient_actor_losses, orient_critic_losses = [], [], []
+            place_ratio_list, place_actor_losses, place_critic_losses = [], [], []
             for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
                 self.training_step += 1
 
@@ -279,19 +266,22 @@ class OrientPPO:
                     place_ratio_list.append(ratios)
                     place_actor_losses.append(actor_loss)
                     place_critic_losses.append(critic_loss)
-            
-            orient_ratio = np.concatenate(orient_ratio_list)
-            orient_clip_rate = np.mean(np.abs(orient_ratio - 1) > self.clip_param)
-            orient_up_rate = np.mean(orient_ratio > 1)
-            orient_down_rate = np.mean(orient_ratio < 1)
 
-            place_ratio = np.concatenate(place_ratio_list)
-            place_clip_rate = np.mean(np.abs(place_ratio - 1) > self.clip_param)
-            place_up_rate = np.mean(place_ratio > 1)
-            place_down_rate = np.mean(place_ratio < 1)
-            logger.info(f"Epoch {epoch+1} / {self.ppo_epoch}, place_actor_loss: {np.mean(place_actor_losses):.4e}, place_critic_loss: {np.mean(place_critic_losses):.4e}, orient_actor_loss: {np.mean(orient_actor_losses):.4e}, orient_critic_loss: {np.mean(orient_critic_losses):.4e}")
-            logger.info(f"Orient ratio# clip_rate: {orient_clip_rate*100:.2f}%, up_rate: {orient_up_rate*100:.2f}%, down_rate: {orient_down_rate*100:.2f}%, max: {np.max(orient_ratio):.5f}, min: {np.min(orient_ratio):.5f}, mean: {np.mean(orient_ratio):.5f}, std: {np.std(orient_ratio):.5f}")
-            logger.info(f"Place ratio# clip_rate: {place_clip_rate*100:.2f}%, up_rate: {place_up_rate*100:.2f}%, down_rate: {place_down_rate*100:.2f}%, max: {np.max(place_ratio):.5f}, min: {np.min(place_ratio):.5f}, mean: {np.mean(place_ratio):.5f}, std: {np.std(place_ratio):.5f}")
+            if self.train_orient_agent:
+                orient_ratio = np.concatenate(orient_ratio_list)
+                orient_clip_rate = np.mean(np.abs(orient_ratio - 1) > self.clip_param)
+                orient_up_rate = np.mean(orient_ratio > 1)
+                orient_down_rate = np.mean(orient_ratio < 1)
+                logger.info(f"orient_actor_loss: {np.mean(orient_actor_losses):.4e}, orient_critic_loss: {np.mean(orient_critic_losses):.4e}")
+                logger.info(f"Orient ratio# clip_rate: {orient_clip_rate*100:.2f}%, up_rate: {orient_up_rate*100:.2f}%, down_rate: {orient_down_rate*100:.2f}%, max: {np.max(orient_ratio):.5f}, min: {np.min(orient_ratio):.5f}, mean: {np.mean(orient_ratio):.5f}, std: {np.std(orient_ratio):.5f}")
+
+            if self.train_place_agent:
+                place_ratio = np.concatenate(place_ratio_list)
+                place_clip_rate = np.mean(np.abs(place_ratio - 1) > self.clip_param)
+                place_up_rate = np.mean(place_ratio > 1)
+                place_down_rate = np.mean(place_ratio < 1)
+                logger.info(f"place_actor_loss: {np.mean(place_actor_losses):.4e}, place_critic_loss: {np.mean(place_critic_losses):.4e}")
+                logger.info(f"Place ratio# clip_rate: {place_clip_rate*100:.2f}%, up_rate: {place_up_rate*100:.2f}%, down_rate: {place_down_rate*100:.2f}%, max: {np.max(place_ratio):.5f}, min: {np.min(place_ratio):.5f}, mean: {np.mean(place_ratio):.5f}, std: {np.std(place_ratio):.5f}")
 
 
         self._update_train_flag()
