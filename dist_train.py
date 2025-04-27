@@ -24,6 +24,14 @@ parser.add_argument("--reverb_batch", type=int, default=10)
 parser.add_argument("--model_iterations", type=int, default=2000, help="model iteration")
 parser.add_argument("--iter_per_model", type=int, default=10, help="iteration per model")
 
+parser.add_argument("--init_chpt", type=Path, default=None, help="init chpt path")
+
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("--train_place", action="store_true", help="train place agent")
+group.add_argument("--train_orient", action="store_true", help="train orient agent")
+group.add_argument("--train_both", action="store_true", help="train both place and orient agent")
+
+
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--reverb_ip", type=str, default="localhost")
 parser.add_argument("--reverb_port", type=int, default=12888)
@@ -55,7 +63,18 @@ agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
 agent.FEATURE_SLICE = env.FEATURE_SLICE
 
-agent.train_orient_agent = True
+if args.init_chpt is not None:
+    agent.load_model(args.init_chpt)
+
+if args.train_place:
+    agent.train_place_agent = True
+    agent.train_orient_agent = False
+elif args.train_orient:
+    agent.train_place_agent = False
+    agent.train_orient_agent = True
+elif args.train_both:
+    agent.train_place_agent = True
+    agent.train_orient_agent = True
 
 strftime = time.strftime("%m%d%H%M", time.localtime())
 run_id = f"{args.design_name}_{strftime}_pnm_{placed_num_macro}_seed_{args.seed}"
