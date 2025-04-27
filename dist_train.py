@@ -52,9 +52,9 @@ placedb = build_soft_macro_placedb(reader, cache_root=cache_root)
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
 placed_num_macro = len(placedb.macro_info)
 learning_rate = {
-    "place_actor": 3e-5,
+    "place_actor": 1e-5,
     "place_critic": 1e-4,
-    "orient_actor": 1e-8,
+    "orient_actor": 1e-7,
     "orient_critic": 1e-4,
 }
 agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=args.mini_batch, lr=learning_rate, gamma=0.98, device='cuda')
