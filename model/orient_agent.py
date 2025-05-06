@@ -9,6 +9,7 @@ from loguru import logger
 from pathlib import Path
 from torch.distributions import Categorical
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from util import trackit
 
@@ -28,7 +29,8 @@ class OrientPPO:
         batch_size: int,
         lr: float, #| dict[str, float],
         gamma: float,
-        device: str,
+        device: str = "cpu",
+        ddp: bool = False
     ):
         super(OrientPPO, self).__init__()
         self.placed_num_macro = placed_num_macro
@@ -41,6 +43,12 @@ class OrientPPO:
         self.place_critic_net = Critic().float().to(device)
         self.orient_actor_net = OrientActor().float().to(device)
         self.orient_critic_net = OrientCritic().float().to(device)
+        if ddp:
+            self.place_actor_net = DDP(self.place_actor_net, device_ids=[device])
+            self.place_critic_net = DDP(self.place_critic_net, device_ids=[device])
+            self.orient_actor_net = DDP(self.orient_actor_net, device_ids=[device])
+            self.orient_critic_net = DDP(self.orient_critic_net, device_ids=[device])
+
         self.buffer = []
         self.counter = 0
         self.training_step = 0
