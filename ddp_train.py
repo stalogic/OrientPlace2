@@ -70,8 +70,8 @@ dataset = reverb.TrajectoryDataset.from_table_signature(
 batch_reader = PlaceTrajectoryDataset(dataset, batch_size=args.reverb_batch)
 
 def setup(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    # os.environ['MASTER_ADDR'] = 'localhost'
+    # os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 
@@ -86,7 +86,7 @@ def init_agent(rank):
         "orient_actor": 1e-7,
         "orient_critic": 1e-4,
     }
-    agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=args.mini_batch, lr=learning_rate, gamma=0.98, device=rank, ddp=True)
+    agent = OrientPPO(placed_num_macro, grid=224, num_game_per_update=10, batch_size=args.mini_batch, lr=learning_rate, gamma=0.98, device=f"cuda:{rank}", ddp=True)
     agent.CANVAS_SLICE = env.CANVAS_SLICE
     agent.WIRE_SLICE = env.WIRE_SLICE
     agent.POS_SLICE = env.POS_SLICE
@@ -133,9 +133,7 @@ def train(rank, world_size):
             model_version_id = torch.tensor([model_id], dtype=torch.int64).to(rank)
         else:
             model_version_id = torch.empty(1, dtype=torch.int64).to(rank)
-        dist.barrier()
         dist.broadcast(model_version_id, src=0)
-        dist.barrier()
 
         data_time, update_time = 0, 0
         for i in range(args.iter_per_model):
