@@ -70,8 +70,8 @@ dataset = reverb.TrajectoryDataset.from_table_signature(
 batch_reader = PlaceTrajectoryDataset(dataset, batch_size=args.reverb_batch)
 
 def setup(rank, world_size):
-    # os.environ['MASTER_ADDR'] = 'localhost'
-    # os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 
@@ -127,7 +127,7 @@ def train(rank, world_size):
             }
             model_variables = tf.nest.map_structure(torch_to_tf, model_variables)
             client.insert([model_variables], priorities={'model_info': model_id})
-            save_time = time.time() - t0
+        save_time = time.time() - t0
         
         if rank == 0:
             model_version_id = torch.tensor([model_id], dtype=torch.int64).to(rank)
@@ -144,9 +144,9 @@ def train(rank, world_size):
             t2 = time.time()
             data_time += t1 - t0
             update_time += t2 - t1
-            logger.info(f"iter: {i+1}{args.iter_per_model}, model_id: {model_id}, data_time: {t1 - t0:.3f}, update_time: {t2 - t1:.3f}")
+            logger.info(f"Rank: {rank}, iter: {i+1}/{args.iter_per_model}, model_id: {model_id}, data_time: {t1 - t0:.3f}, update_time: {t2 - t1:.3f}")
 
-        logger.info(f"model_id: {model_id} trained, save_time: {save_time:.3f} data_time: {data_time:.3f}, update_time: {update_time:.3f}")
+        logger.info(f"Rank: {rank}, model_id: {model_id} finished, save_time: {save_time:.3f} data_time: {data_time:.3f}, update_time: {update_time:.3f}")
 
     cleanup()
 
