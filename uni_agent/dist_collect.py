@@ -1,4 +1,5 @@
 import os
+import sys
 import gym
 import time
 import reverb
@@ -7,6 +8,7 @@ import numpy as np
 import tensorflow as tf
 from loguru import logger
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
 from model import UniPPO
@@ -28,6 +30,8 @@ args = parser.parse_args()
 if args.seed is None:
     args.seed = int(time.time())
     logger.info(f"Set random seed to {args.seed}")
+else:
+    logger.info(f"Set seed to {args.seed}")
 set_random_seed(args.seed)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
@@ -72,7 +76,7 @@ def collect():
             while not done:
                 action_info, state_info = agent.select_action(state)
                 action, log_prob, value = action_info
-                state, mask, macro_id = state_info
+                state_, mask, macro_id = state_info
                 
                 orient = action // 224 // 224
                 position = action % (224 * 224)
@@ -81,7 +85,7 @@ def collect():
 
                 trajectory.append({
                     'macro_id': macro_id,
-                    'state': state,
+                    'state': state_,
                     'mask': mask,
 
                     'action': action,

@@ -1,4 +1,5 @@
 import os
+import sys
 import gym
 import time
 import torch
@@ -7,10 +8,10 @@ import argparse
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import tensorflow as tf
-
 from pathlib import Path
 from loguru import logger
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
 from model import UniPPO

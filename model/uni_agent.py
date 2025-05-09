@@ -35,9 +35,10 @@ class UniPPO:
         self.grid = grid
         self.batch_size = batch_size
         self.device = device
-        self.uni_actor_net = UniActor()
-        self.uni_critic_net = UniCritic()
-        if ddp:
+        self.uni_actor_net = UniActor().float().to(device)
+        self.uni_critic_net = UniCritic().float().to(device)
+        self.ddp = ddp
+        if self.ddp:
             self.uni_actor_net = DDP(self.uni_actor_net)
             self.uni_critic_net = DDP(self.uni_critic_net)
 
@@ -68,11 +69,14 @@ class UniPPO:
 
     @retry(tries=3, delay=1, backoff=2)
     def save_model(self, save_path: Path, save_flag: str):
+        # 根据是否使用DDP，选择保存模型的方式
+        uni_actor_net = self.uni_actor_net.module if self.ddp else self.uni_actor_net
+        uni_critic_net = self.uni_critic_net.module if self.ddp else self.uni_critic_net
         save_path.mkdir(parents=True, exist_ok=True)
         with gzip.open(save_path / f"{save_flag}_state_dict.pkl.gz", "wb") as f:
             torch.save({
-                "uni_actor_net": self.uni_actor_net.state_dict(),
-                "uni_critic_net": self.uni_critic_net.state_dict(),
+                "uni_actor_net": uni_actor_net.state_dict(),
+                "uni_critic_net": uni_critic_net.state_dict(),
             }, f)
 
     @trackit
@@ -119,7 +123,7 @@ class UniPPO:
 
         action = torch.tensor(data['action'], dtype=torch.int64).to(self.device)
         old_log_prob = torch.tensor(data['log_prob'], dtype=torch.float).to(self.device)
-        advantage = torch.tensor(data['o_advantage'], dtype=torch.float).to(self.device)
+        advantage = torch.tensor(data['advantage'], dtype=torch.float).to(self.device)
         target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
         
 
@@ -177,14 +181,13 @@ class UniPPO:
         self.uni_critic_net.train()
 
         normalize_advantage = (batch_advantage - batch_advantage.mean()) / (batch_advantage.std() + 1e-8)
-        assert ratio.shape == normalize_advantage.shape
 
         action_probs = self.uni_actor_net(state, mask)
         log_prob = Categorical(action_probs).log_prob(batch_action)
         assert log_prob.shape == batch_old_log_prob.shape
         ratio = torch.exp(log_prob - batch_old_log_prob) # (batch_size,)
 
-        
+        assert ratio.shape == normalize_advantage.shape
         L1 = ratio * normalize_advantage
         L2 = torch.clamp(ratio, 1 - self.clip_param, 1 + self.clip_param) * normalize_advantage
         assert L1.shape == L2.shape

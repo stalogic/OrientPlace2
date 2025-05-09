@@ -23,8 +23,8 @@ parser.add_argument("--reverb_port", type=int, default=12888)
 args = parser.parse_args()
 
 for i in range(args.jobs):
-    command = f"python {args.agent}/dist_collect.py --design_name {args.design_name} --reverb_ip {args.reverb_ip} --cuda {i % args.gpus} > {args.log_root}/host_{HOST_IP}_collect_{args.design_name}_{i}.log 2>&1 &"
+    command = f"python {args.agent}/dist_collect.py --seed {int(time.time()*1000) % 10000} --design_name {args.design_name} --reverb_ip {args.reverb_ip} --cuda {i % args.gpus} > {args.log_root}/host_{HOST_IP}_collect_{args.design_name}_{i}.log 2>&1 &"
     if args.noport:
         command = "PLACEENV_IGNORE_PORT=1 " + command
     os.system(command)
-    time.sleep(1)
+    # time.sleep(1.5)

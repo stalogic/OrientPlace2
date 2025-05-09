@@ -1,10 +1,12 @@
 import os
+import sys
 import gym
 import torch
 import reverb
 import argparse
 import tensorflow as tf
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import place_env
 from placedb import LefDefReader, build_soft_macro_placedb
 from model import UniPPO
@@ -29,7 +31,7 @@ reader = LefDefReader(data_root, args.design_name, cache_root)
 placedb = build_soft_macro_placedb(reader, cache_root=cache_root)
 env = gym.make("orient_env-v0", placedb=placedb, grid=224).unwrapped
 placed_num_macro = len(placedb.macro_info)
-agent = UniPPO(placed_num_macro, grid=224, num_game_per_update=5, batch_size=128, lr=1e-5, gamma=0.98, device='cpu')
+agent = UniPPO(placed_num_macro, grid=224, batch_size=128, lr=1e-5, device='cpu')
 agent.CANVAS_SLICE = env.CANVAS_SLICE
 agent.WIRE_SLICE = env.WIRE_SLICE
 agent.POS_SLICE = env.POS_SLICE
