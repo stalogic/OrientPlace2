@@ -226,3 +226,77 @@ class OrientCritic(nn.Module):
         x2 = F.relu(self.fc2(x1))
         value = self.state_value(x2)
         return value
+    
+
+class UniActor(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.cnn = nn.Sequential(
+            nn.Conv2d(9, 64, 1), # N, 64, 224, 224
+            nn.ReLU(),
+            nn.Conv2d(64, 256, 1), # N, 256, 224, 224
+            nn.ReLU(),
+            nn.Conv2d(256, 128, 1), # N, 128, 224, 224
+            nn.ReLU(),
+            nn.Conv2d(128, 8, 1), # N, 8, 224, 224
+        )
+
+    def forward(self, x: torch.Tensor, pos_mask: torch.Tensor=None):
+
+        batch_size = x.shape[0]
+        assert x.shape == (batch_size, 9, 224, 224)
+
+        logits = self.cnn(x)
+        assert logits.shape == (batch_size, 8, 224, 224)
+
+        if pos_mask is not None:
+            assert pos_mask.shape == (batch_size, 8, 224, 224)
+            logits = torch.where(pos_mask == 1, -1.0e+10 * torch.ones_like(logits), logits)
+        probs = F.softmax(logits.view(batch_size, -1), dim=1)
+        return probs
+    
+
+class UniCritic(nn.Module):
+
+    def __init__(self, max_macros:int=1000):
+        super().__init__()
+        self.cnn = nn.Sequential(
+            nn.Conv2d(9, 64, 1),    # N, 64, 224 224
+            nn.ReLU(),
+            nn.AvgPool2d(2),        # N, 64, 112, 112
+            nn.Conv2d(64, 256, 1),  # N, 256, 112, 112
+            nn.ReLU(),
+            nn.AvgPool2d(2),        # N, 256, 56, 56
+            nn.Conv2d(256, 64, 1),  # N, 64, 56, 56
+            nn.ReLU(),
+            nn.AvgPool2d(2),        # N, 64, 28, 28
+            nn.Conv2d(64, 4, 1),    # N, 4, 28, 28
+            nn.ReLU(),
+            nn.AvgPool2d(2),        # N, 4, 14, 14
+            nn.Flatten(),           # N, 784
+        )
+        self.macro_embedding = nn.Embedding(max_macros, 784)
+        self.mlp = nn.Sequential(
+            nn.Linear(784*2, 784),
+            nn.ReLU(),
+            nn.Linear(784, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def forward(self, x:torch.Tensor, macro_id:torch.Tensor):
+        batch_size = x.shape[0]
+        assert x.shape == (batch_size, 9, 224, 224)
+
+        x = self.cnn(x)
+        assert x.shape == (batch_size, 784)
+        macro_emb = self.macro_embedding(macro_id.long())
+        assert macro_emb.shape == (batch_size, 784)
+        x = torch.cat([x, macro_emb], dim=1)
+        v = self.mlp(x)
+        return v
