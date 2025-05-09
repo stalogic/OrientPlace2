@@ -46,8 +46,8 @@ class UniPPO:
             uni_actor_lr = lr
             uni_critic_lr = lr
         elif isinstance(lr, dict):
-            uni_actor_lr = lr.get("uni_actor_lr", 1e-5)
-            uni_critic_lr = lr.get("uni_critic_lr", 1e-4)
+            uni_actor_lr = lr.get("uni_actor", 1e-5)
+            uni_critic_lr = lr.get("uni_critic", 1e-4)
         else:
             raise ValueError("lr must be float or dict")
         logger.info(f"{uni_actor_lr=}, {uni_critic_lr=}")
@@ -115,7 +115,7 @@ class UniPPO:
         # 分布式训练，数据来自reverb
         macro_id = torch.tensor(data['macro_id'], dtype=torch.int64).to(self.device)
         state = torch.tensor(data['state'], dtype=torch.float).to(self.device)
-        pos_mask = torch.tensor(data['pos_mask'], dtype=torch.float).to(self.device)
+        mask = torch.tensor(data['mask'], dtype=torch.float).to(self.device)
 
         action = torch.tensor(data['action'], dtype=torch.int64).to(self.device)
         old_log_prob = torch.tensor(data['log_prob'], dtype=torch.float).to(self.device)
@@ -139,12 +139,12 @@ class UniPPO:
 
                 batch_macro_id = macro_id[index].to(self.device)
                 batch_state = state[index].to(self.device)
-                batch_pos_mask = pos_mask[index].to(self.device)
+                batch_mask = mask[index].to(self.device)
 
                 state_dict = {
                     'macro_id': batch_macro_id,
                     'state': batch_state,
-                    'pos_mask': batch_pos_mask,
+                    'mask': batch_mask,
                 }
 
                 batch_action = action[index].to(self.device)
@@ -167,7 +167,7 @@ class UniPPO:
 
     def update_agent(self, state_dict, batch_action, batch_target_value, batch_advantage, batch_old_log_prob):
         state = state_dict['state']
-        pos_mask = state_dict['pos_mask']
+        mask = state_dict['mask']
         macro_id = state_dict['macro_id'].squeeze()
         batch_action = batch_action.squeeze()
         batch_advantage = batch_advantage.squeeze()
@@ -179,7 +179,7 @@ class UniPPO:
         normalize_advantage = (batch_advantage - batch_advantage.mean()) / (batch_advantage.std() + 1e-8)
         assert ratio.shape == normalize_advantage.shape
 
-        action_probs = self.uni_actor_net(state, pos_mask)
+        action_probs = self.uni_actor_net(state, mask)
         log_prob = Categorical(action_probs).log_prob(batch_action)
         assert log_prob.shape == batch_old_log_prob.shape
         ratio = torch.exp(log_prob - batch_old_log_prob) # (batch_size,)
