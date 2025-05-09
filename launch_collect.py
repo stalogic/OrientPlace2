@@ -3,7 +3,7 @@ import time
 import socket
 import argparse
 
-HOST_IP = socket.gethostbyname(socket.gethostname()).replace(".", "-")
+HOST_IP = socket.gethostbyname(socket.gethostname())
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--jobs", type=int, default=4)
