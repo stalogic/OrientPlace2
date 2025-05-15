@@ -25,7 +25,6 @@ class OrientPPO:
         self,
         placed_num_macro: int,
         grid: int,
-        num_game_per_update:int,
         batch_size: int,
         lr: float, #| dict[str, float],
         gamma: float,
@@ -34,7 +33,6 @@ class OrientPPO:
     ):
         super(OrientPPO, self).__init__()
         self.placed_num_macro = placed_num_macro
-        self.buffer_capacity = num_game_per_update * placed_num_macro
         self.grid = grid
         self.batch_size = batch_size
         self.gamma = gamma
@@ -49,9 +47,6 @@ class OrientPPO:
             self.orient_actor_net = DDP(self.orient_actor_net, device_ids=[device])
             self.orient_critic_net = DDP(self.orient_critic_net, device_ids=[device])
 
-        self.buffer = []
-        self.counter = 0
-        self.training_step = 0
         if isinstance(lr, float):
             place_actor_lr = lr
             place_critic_lr = lr
@@ -75,11 +70,8 @@ class OrientPPO:
         self.orient_actor_scheduler = optim.lr_scheduler.StepLR(self.orient_actor_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
         self.orient_critic_scheduler = optim.lr_scheduler.StepLR(self.orient_critic_optimizer, step_size=50*self.ppo_epoch, gamma=0.3)
 
-        self.placer_ok = False
         self.train_orient_agent = False
         self.train_place_agent = True
-        self.orient_agent_update_count = None
-        self.place_agent_update_count = None
 
         self.CANVAS_SLICE = None
         self.WIRE_SLICE = None
@@ -108,13 +100,8 @@ class OrientPPO:
                 f,
             )
 
-    def store_transition(self, transition):
-        self.buffer.append(transition)
-        self.counter += 1
-        return self.counter % self.buffer_capacity == 0
-
     @trackit
-    def select_action(self, state) -> tuple[int, int, float, float]:
+    def select_action(self, state, noorient:bool=False) -> tuple[int, int, float, float]:
 
         state = torch.from_numpy(state).float().to(self.device).unsqueeze(0)
         canvas = state[:, self.CANVAS_SLICE].reshape(-1, 1, self.grid, self.grid)
@@ -134,6 +121,8 @@ class OrientPPO:
             assert orient_probs.shape == (batch_size, 8), f"{orient_probs.shape=} != {(batch_size, 8)=}"
             orient_dist = Categorical(orient_probs)
             orient = orient_dist.sample()
+            if noorient:    # 不使用orient时，使用orient=0，表示使用默认方向
+                orient = torch.zeros_like(orient)
             orient_log_prob = orient_dist.log_prob(orient)
             assert orient_log_prob.shape == (batch_size,), f"{orient_log_prob.shape=} != {(batch_size,)=}"
             orient_value = self.orient_critic_net(canvas, wire_img_8oc, pos_mask_8oc, macro_id)
@@ -158,65 +147,25 @@ class OrientPPO:
 
         return orient_info, action_info, state_imgs
     
-    def _update_train_flag(self):
-        if self.placer_ok:
-            if self.orient_agent_update_count is None and self.place_agent_update_count is None:
-                # 第一次更新train flag
-                self.orient_agent_update_count = 0
-                self.place_agent_update_count = 0
-                self.train_orient_agent = True
-                self.train_place_agent = False
-            else:
-                if self.train_orient_agent:
-                    self.orient_agent_update_count += 1
-                    if self.orient_agent_update_count % 5 == 0:
-                        self.train_orient_agent = False
-                        self.train_place_agent = True
-                elif self.train_place_agent:
-                    self.place_agent_update_count += 1
-                    if self.place_agent_update_count % 1 == 0:
-                        self.train_place_agent = False
-                        self.train_orient_agent = True
-                else:
-                    raise ValueError("orient, place train flag are False")
-            print(f"update train flag, train_orient_agent={self.train_orient_agent}, train_place_agent={self.train_place_agent}")
             
     @trackit
     def update(self, data:dict=None) -> None:
 
-        if data is None:
-            # 单机模式，数据来自buffer
-            target_list = []
-            target = None
-            for transition in reversed(self.buffer):
-                if transition.done:
-                    target = 0
-                target = transition.reward + self.gamma * target
-                target_list.append(target)
-            target_list.reverse()
-            target_v = torch.tensor(np.array(target_list), dtype=torch.float).view(-1, 1).to(self.device)
-            state = torch.tensor(np.array([t.state for t in self.buffer]), dtype=torch.float)
-            orient = torch.tensor(np.array([t.orient for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-            action = torch.tensor(np.array([t.action for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-            old_action_log_prob = torch.tensor(np.array([t.a_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-            old_orient_log_prob = torch.tensor(np.array([t.o_log_prob for t in self.buffer]), dtype=torch.float).view(-1, 1).to(self.device)
-            self.buffer.clear()
-        else:
-            # 分布式训练，数据来自reverb
-            macro_id = torch.tensor(data['macro_id'], dtype=torch.int64).to(self.device)
-            canvas = torch.tensor(data['canvas'], dtype=torch.float).to(self.device)
-            wire_img_8oc = torch.tensor(data['wire_img_8oc'], dtype=torch.float).to(self.device)
-            pos_mask_8oc = torch.tensor(data['pos_mask_8oc'], dtype=torch.float).to(self.device)
-            wire_img_1oc = torch.tensor(data['wire_img_1oc'], dtype=torch.float).to(self.device)
-            pos_mask_1oc = torch.tensor(data['pos_mask_1oc'], dtype=torch.float).to(self.device)
+        # 获取数据
+        macro_id = torch.tensor(data['macro_id'], dtype=torch.int64).to(self.device)
+        canvas = torch.tensor(data['canvas'], dtype=torch.float).to(self.device)
+        wire_img_8oc = torch.tensor(data['wire_img_8oc'], dtype=torch.float).to(self.device)
+        pos_mask_8oc = torch.tensor(data['pos_mask_8oc'], dtype=torch.float).to(self.device)
+        wire_img_1oc = torch.tensor(data['wire_img_1oc'], dtype=torch.float).to(self.device)
+        pos_mask_1oc = torch.tensor(data['pos_mask_1oc'], dtype=torch.float).to(self.device)
 
-            orient = torch.tensor(data['orient'], dtype=torch.int64).to(self.device)
-            action = torch.tensor(data['action'], dtype=torch.int64).to(self.device)
-            old_action_log_prob = torch.tensor(data['a_log_prob'], dtype=torch.float).to(self.device)
-            old_orient_log_prob = torch.tensor(data['o_log_prob'], dtype=torch.float).to(self.device)
-            orient_advantage = torch.tensor(data['o_advantage'], dtype=torch.float).to(self.device)
-            action_advantage = torch.tensor(data['a_advantage'], dtype=torch.float).to(self.device)
-            target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
+        orient = torch.tensor(data['orient'], dtype=torch.int64).to(self.device)
+        action = torch.tensor(data['action'], dtype=torch.int64).to(self.device)
+        old_action_log_prob = torch.tensor(data['a_log_prob'], dtype=torch.float).to(self.device)
+        old_orient_log_prob = torch.tensor(data['o_log_prob'], dtype=torch.float).to(self.device)
+        orient_advantage = torch.tensor(data['o_advantage'], dtype=torch.float).to(self.device)
+        action_advantage = torch.tensor(data['a_advantage'], dtype=torch.float).to(self.device)
+        target_value = torch.tensor(data['return'], dtype=torch.float).to(self.device)
         
 
         action_advantage_mean = action_advantage.mean().cpu().item()
@@ -238,7 +187,6 @@ class OrientPPO:
             orient_ratio_list, orient_actor_losses, orient_critic_losses = [], [], []
             place_ratio_list, place_actor_losses, place_critic_losses = [], [], []
             for index in BatchSampler(SubsetRandomSampler(range(action.shape[0])), self.batch_size, True):
-                self.training_step += 1
 
                 batch_macro_id = macro_id[index].to(self.device)
                 batch_canvas = canvas[index].to(self.device)
@@ -291,8 +239,6 @@ class OrientPPO:
                 logger.info(f"place_actor_loss: {np.mean(place_actor_losses):.4e}, place_critic_loss: {np.mean(place_critic_losses):.4e}")
                 logger.info(f"Place ratio# clip_rate: {place_clip_rate*100:.2f}%, up_rate: {place_up_rate*100:.2f}%, down_rate: {place_down_rate*100:.2f}%, max: {np.max(place_ratio):.5f}, min: {np.min(place_ratio):.5f}, mean: {np.mean(place_ratio):.5f}, std: {np.std(place_ratio):.5f}")
 
-
-        self._update_train_flag()
 
     def update_place_agent(self, state_dict, batch_orient, batch_action, batch_target_value, batch_action_advantage, batch_old_action_log_prob):
         canvas = state_dict['canvas']
