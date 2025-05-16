@@ -7,6 +7,7 @@ import torch.optim as optim
 from retry import retry
 from loguru import logger
 from pathlib import Path
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.distributions import Categorical
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -54,6 +55,8 @@ class UniPPO:
         logger.info(f"{uni_actor_lr=}, {uni_critic_lr=}")
         self.uni_actor_optimizer = optim.Adam(self.uni_actor_net.parameters(), lr=uni_actor_lr)
         self.uni_critic_optimizer = optim.Adam(self.uni_critic_net.parameters(), lr=uni_critic_lr)
+        self.uni_actor_scheduler = CosineAnnealingWarmRestarts(self.uni_actor_optimizer, T_0=50, T_mult=2)
+        self.uni_critic_scheduler = CosineAnnealingWarmRestarts(self.uni_critic_optimizer, T_0=50, T_mult=2)
 
         self.CANVAS_SLICE = None
         self.WIRE_SLICE = None
@@ -190,6 +193,8 @@ class UniPPO:
             logger.info(f"actor_loss: {np.mean(actor_losses):.4e}, critic_loss: {np.mean(critic_losses):.4e}")
             logger.info(f"Ratio# clip_rate: {clip_rate*100:.2f}%, up_rate: {up_rate*100:.2f}%, down_rate: {down_rate*100:.2f}%, max: {np.max(ratios):.5f}, min: {np.min(ratios):.5f}, mean: {np.mean(ratios):.5f}, std: {np.std(ratios):.5f}")
 
+        self.uni_actor_scheduler.step()
+        self.uni_critic_scheduler.step()
     def update_agent(self, state_dict, batch_action, batch_target_value, batch_advantage, batch_old_log_prob):
         state = state_dict['state']
         mask = state_dict['mask']
