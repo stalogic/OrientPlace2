@@ -17,7 +17,7 @@ parser.add_argument("--project_root", type=str, default=".")
 parser.add_argument("--log_root", type=str, default="logs")
 
 parser.add_argument("--gamma", type=float, default=0.98)
-parser.add_argument("--reverb_ip", type=str, default="localhost")
+parser.add_argument("--reverb_ip", type=str, default="10.200.72.202")
 parser.add_argument("--reverb_port", type=int, default=12888)
 
 args = parser.parse_args()
