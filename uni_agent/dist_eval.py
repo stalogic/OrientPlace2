@@ -65,7 +65,7 @@ def evaluate_model(chpt_path: Path):
         done = False
         total_reward = 0
         while not done:
-            if i == 0 and hasattr(agent, "greedy_action"):
+            if i == 0:
                 action = agent.greedy_action(state)
             else:
                 action_info, _ = agent.select_action(state)
