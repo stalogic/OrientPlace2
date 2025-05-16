@@ -65,9 +65,12 @@ def evaluate_model(chpt_path: Path):
         done = False
         total_reward = 0
         while not done:
-            action_info, _ = agent.select_action(state)
-            action, _, _ = action_info
-            
+            if i == 0 and hasattr(agent, "greedy_action"):
+                action = agent.greedy_action(state)
+            else:
+                action_info, _ = agent.select_action(state)
+                action, _, _ = action_info
+                
             orient = action // 224 // 224
             position = action % (224 * 224)
             next_state, reward, done, _ = env.step(position, orient)

@@ -111,6 +111,27 @@ class UniPPO:
         state_info = (state[0].cpu().numpy(), pos_mask[0].cpu().numpy(), macro_id.long().item())
 
         return action_info, state_info
+    
+    def greedy_action(self, state):
+        state = torch.from_numpy(state).float().to(self.device).unsqueeze(0)
+        canvas = state[:, self.CANVAS_SLICE].reshape(-1, 1, self.grid, self.grid)
+        wire_img = state[:, self.WIRE_SLICE].reshape(-1, 8, self.grid, self.grid)
+        pos_mask = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
+
+        batch_size = state.shape[0]
+
+        state = torch.where(pos_mask == 1, -wire_img, wire_img)
+        state = torch.concat([canvas, state], dim=1)
+
+        with torch.no_grad():
+            self.uni_actor_net.eval()
+
+            action_prob = self.uni_actor_net(state, pos_mask)
+            assert action_prob.shape == (batch_size, 8*224*224)
+            action = torch.argmax(action_prob, dim=1)
+            assert action.shape == (batch_size,)
+
+        return action.item()
   
     @trackit
     def update(self, data:dict=None) -> None:
