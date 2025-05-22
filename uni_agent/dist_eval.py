@@ -18,6 +18,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--design_name", type=str, default="ariane133")
 parser.add_argument("--project_root", type=str, default=".")
 
+parser.add_argument("--noorient", action="store_true", default=False, help="noorient")
+
 parser.add_argument("--result_dir", type=str)
 parser.add_argument("--clean", action="store_true", default=False, help="clean existing evaluation results")
 parser.add_argument("--eval_num", type=int, default=10)
@@ -66,9 +68,9 @@ def evaluate_model(chpt_path: Path):
         total_reward = 0
         while not done:
             if i == 0:
-                action = agent.greedy_action(state)
+                action = agent.greedy_action(state, args.noorient)
             else:
-                action_info, _ = agent.select_action(state)
+                action_info, _ = agent.select_action(state, args.noorient)
                 action, _, _ = action_info
                 
             orient = action // 224 // 224

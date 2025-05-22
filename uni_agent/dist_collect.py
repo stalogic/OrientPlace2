@@ -20,6 +20,7 @@ parser.add_argument("--design_name", type=str, default="ariane133")
 parser.add_argument("--project_root", type=str, default=".")
 
 parser.add_argument("--gamma", type=float, default=0.98)
+parser.add_argument("--noorient", action="store_true", default=False, help="noorient")
 
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--reverb_ip", type=str, default="localhost")
@@ -74,7 +75,7 @@ def collect():
             total_reward = 0
             trajectory = []
             while not done:
-                action_info, state_info = agent.select_action(state)
+                action_info, state_info = agent.select_action(state, args.noorient)
                 action, log_prob, value = action_info
                 state_, mask, macro_id = state_info
                 

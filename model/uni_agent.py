@@ -83,16 +83,18 @@ class UniPPO:
             }, f)
 
     @trackit
-    def select_action(self, state):
+    def select_action(self, state: np.ndarray, noorient: bool=False):
 
         state = torch.from_numpy(state).float().to(self.device).unsqueeze(0)
         canvas = state[:, self.CANVAS_SLICE].reshape(-1, 1, self.grid, self.grid)
         wire_img = state[:, self.WIRE_SLICE].reshape(-1, 8, self.grid, self.grid)
         pos_mask = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
         macro_id = state[:, -3]
-
         batch_size = state.shape[0]
 
+        if noorient:
+            # 禁用orientation调整，只使用默认的orientation，通过pos_mask来屏蔽1-7的orientation
+            pos_mask[:, 1:, :, : ] = 1
         state = torch.where(pos_mask == 1, -wire_img, wire_img)
         state = torch.concat([canvas, state], dim=1)
 
@@ -115,14 +117,16 @@ class UniPPO:
 
         return action_info, state_info
     
-    def greedy_action(self, state):
+    def greedy_action(self, state: np.ndarray, noorient:bool=False):
         state = torch.from_numpy(state).float().to(self.device).unsqueeze(0)
         canvas = state[:, self.CANVAS_SLICE].reshape(-1, 1, self.grid, self.grid)
         wire_img = state[:, self.WIRE_SLICE].reshape(-1, 8, self.grid, self.grid)
         pos_mask = state[:, self.POS_SLICE].reshape(-1, 8, self.grid, self.grid)
-
         batch_size = state.shape[0]
-
+        
+        if noorient:
+            # 禁用orientation调整，只使用默认的orientation，通过pos_mask来屏蔽1-7的orientation
+            pos_mask[:, 1:, :, : ] = 1
         state = torch.where(pos_mask == 1, -wire_img, wire_img)
         state = torch.concat([canvas, state], dim=1)
 
